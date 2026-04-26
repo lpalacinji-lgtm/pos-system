@@ -153,7 +153,7 @@ export default function POSCaja({ caja, productos, categorias, profile }: {
       <header className="bg-emerald-700 text-white px-4 py-3 flex justify-between items-center shadow">
         <div>
           <h1 className="text-lg font-bold">{caja.nombre}</h1>
-          <p className="text-xs opacity-80">{profile.nombre_completo}</p>
+          <p className="text-xs opacity-80">{profile.nombre}</p>
         </div>
         <LogoutButton className="text-white/80 hover:text-white" />
       </header>

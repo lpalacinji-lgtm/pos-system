@@ -1,10 +1,11 @@
 'use client'
 
 import { Suspense, useState } from 'react'
-import { useSearchParams } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 
 function LoginForm() {
+  const router = useRouter()
   const searchParams = useSearchParams()
   const supabase = createClient()
   const [email, setEmail] = useState('')
@@ -20,34 +21,14 @@ function LoginForm() {
     e.preventDefault()
     setLoading(true)
     setError(null)
-
-    const { data, error: authError } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    })
-
-    if (authError || !data.session) {
+    const { error: authError } = await supabase.auth.signInWithPassword({ email, password })
+    if (authError) {
       setError('Credenciales incorrectas')
       setLoading(false)
       return
     }
-
-    // Determinar destino según rol consultando profiles
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('rol, caja_id')
-      .eq('id', data.user.id)
-      .maybeSingle()
-
-    let destino = '/login'
-    if (profile?.rol === 'ADMIN') destino = '/admin'
-    else if (profile?.rol === 'CAJERA' && profile.caja_id) destino = `/caja/${profile.caja_id}`
-    else if (profile?.rol === 'COCINA') destino = '/cocina'
-    else if (profile?.rol === 'BODEGA') destino = '/bodega'
-    else if (profile?.rol === 'DOMICILIARIO') destino = '/domicilio'
-
-    // Hard navigate - fuerza full reload con la cookie nueva ya seteada
-    window.location.href = destino
+    router.push('/')
+    router.refresh()
   }
 
   return (

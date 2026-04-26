@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 
 type Caja = { id: string; nombre: string; ubicacion: string | null; activa: boolean }
-type Profile = { id: string; email: string; nombre_completo: string; rol: string; caja_id: string | null; activo: boolean }
+type Profile = { id: string; email: string; nombre: string; rol: string; caja_id: string | null; activo: boolean }
 
 export default function AdminUsuariosPage() {
   const supabase = createClient()
@@ -20,7 +20,7 @@ export default function AdminUsuariosPage() {
     setLoading(true)
     const [cajasRes, usuariosRes] = await Promise.all([
       supabase.from('cajas').select('*').order('nombre'),
-      supabase.from('profiles').select('*').order('nombre_completo'),
+      supabase.from('profiles').select('*').order('nombre'),
     ])
     setCajas(cajasRes.data || [])
     setUsuarios(usuariosRes.data || [])
@@ -44,7 +44,7 @@ export default function AdminUsuariosPage() {
       body: JSON.stringify({
         email: formData.get('email'),
         password: formData.get('password'),
-        nombre_completo: formData.get('nombre_completo'),
+        nombre: formData.get('nombre'),
         rol: formData.get('rol'),
         caja_id: formData.get('caja_id') || null,
         telefono: formData.get('telefono'),
@@ -120,7 +120,7 @@ export default function AdminUsuariosPage() {
             <tbody className="divide-y">
               {usuarios.map(u => (
                 <tr key={u.id}>
-                  <td className="px-4 py-3">{u.nombre_completo}</td>
+                  <td className="px-4 py-3">{u.nombre}</td>
                   <td className="px-4 py-3 text-sm text-gray-600">{u.email}</td>
                   <td className="px-4 py-3">
                     <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs font-medium">
@@ -171,7 +171,7 @@ export default function AdminUsuariosPage() {
           <div className="bg-white rounded-lg p-6 max-w-md w-full">
             <h3 className="text-xl font-bold mb-4">Nuevo Usuario</h3>
             <form action={crearUsuario} className="space-y-4">
-              <input name="nombre_completo" placeholder="Nombre completo" required
+              <input name="nombre" placeholder="Nombre completo" required
                 className="w-full border rounded-lg px-3 py-2" />
               <input name="email" type="email" placeholder="Email" required
                 className="w-full border rounded-lg px-3 py-2" />

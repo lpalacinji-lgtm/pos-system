@@ -17,7 +17,7 @@ export async function POST(req: Request) {
   const body = await req.json()
 
   // Validaciones básicas
-  if (!body.email || !body.password || !body.nombre_completo || !body.rol) {
+  if (!body.email || !body.password || !body.nombre || !body.rol) {
     return NextResponse.json({ error: 'Faltan campos obligatorios' }, { status: 400 })
   }
   if (body.rol === 'CAJERA' && !body.caja_id) {
@@ -40,7 +40,7 @@ export async function POST(req: Request) {
   const { error: profileError } = await adminClient.from('profiles').insert({
     id: authData.user.id,
     email: body.email,
-    nombre_completo: body.nombre_completo,
+    nombre: body.nombre,
     rol: body.rol,
     caja_id: body.rol === 'CAJERA' ? body.caja_id : null,
     telefono: body.telefono,

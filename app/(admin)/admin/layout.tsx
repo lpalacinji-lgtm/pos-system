@@ -8,7 +8,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
   const { data: profile } = await supabase
-    .from('profiles').select('nombre_completo, rol').eq('id', user.id).single()
+    .from('profiles').select('nombre, rol').eq('id', user.id).single()
   if (profile?.rol !== 'ADMIN') redirect('/')
 
   return (
@@ -16,7 +16,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
       <aside className="w-full md:w-64 bg-gray-900 text-white md:min-h-screen p-4">
         <div className="mb-8">
           <h1 className="text-xl font-bold text-emerald-400">POS Admin</h1>
-          <p className="text-xs text-gray-400 mt-1">{profile?.nombre_completo}</p>
+          <p className="text-xs text-gray-400 mt-1">{profile?.nombre}</p>
         </div>
         <nav className="space-y-1">
           <NavLink href="/admin" label="📊 Dashboard" />
