@@ -1,39 +1,89 @@
 import { createClient } from '@/lib/supabase/server'
 
+export const dynamic = 'force-dynamic'
+
 export default async function AdminDashboard() {
   const supabase = await createClient()
 
   const hoy = new Date().toISOString().split('T')[0]
   const haceUnaSemana = new Date(Date.now() - 7 * 86400000).toISOString().split('T')[0]
 
-  const { data: ventasHoy } = await supabase.rpc('reporte_ventas_periodo', {
-    p_fecha_inicio: hoy, p_fecha_fin: hoy, p_caja_id: null,
+  const { data: ventasHoy, error: errHoy } = await supabase.rpc('reporte_ventas_periodo', {
+    fecha_inicio: hoy,
+    fecha_fin: hoy,
+    p_caja_id: null,
   })
   const { data: ventas7d } = await supabase.rpc('reporte_ventas_periodo', {
-    p_fecha_inicio: haceUnaSemana, p_fecha_fin: hoy, p_caja_id: null,
+    fecha_inicio: haceUnaSemana,
+    fecha_fin: hoy,
+    p_caja_id: null,
   })
 
-  const { data: insumosBajos } = await supabase.from('insumos')
+  const { data: insumosBajos } = await supabase
+    .from('insumos')
     .select('id, codigo, nombre, stock_actual, stock_minimo, unidad')
-    .eq('activo', true).order('stock_actual')
+    .eq('activo', true)
+    .order('stock_actual')
 
-  const totalHoy = (ventasHoy ?? []).reduce((s: number, r: any) => s + Number(r.total_ventas || 0), 0)
-  const cantidadHoy = (ventasHoy ?? []).reduce((s: number, r: any) => s + Number(r.cantidad_ventas || 0), 0)
-  const total7d = (ventas7d ?? []).reduce((s: number, r: any) => s + Number(r.total_ventas || 0), 0)
+  const totalHoy = (ventasHoy ?? []).reduce(
+    (s: number, r: any) => s + Number(r.total || 0),
+    0
+  )
+  const cantidadHoy = (ventasHoy ?? []).reduce(
+    (s: number, r: any) => s + Number(r.num_ventas || 0),
+    0
+  )
+  const total7d = (ventas7d ?? []).reduce(
+    (s: number, r: any) => s + Number(r.total || 0),
+    0
+  )
 
-  const insumosCriticos = (insumosBajos ?? []).filter((i: any) => Number(i.stock_actual) <= Number(i.stock_minimo))
+  const insumosCriticos = (insumosBajos ?? []).filter(
+    (i: any) => Number(i.stock_actual) <= Number(i.stock_minimo)
+  )
 
-  const fmt = (n: number) => new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(n)
+  const fmt = (n: number) =>
+    new Intl.NumberFormat('es-CO', {
+      style: 'currency',
+      currency: 'COP',
+      maximumFractionDigits: 0,
+    }).format(n)
 
   return (
     <div className="p-6 space-y-6">
       <h1 className="text-3xl font-bold">Dashboard</h1>
 
+      {errHoy && (
+        <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800">
+          Aviso: {errHoy.message}
+        </div>
+      )}
+
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <KpiCard title="Ventas hoy" value={fmt(totalHoy)} sub={`${cantidadHoy} transacciones`} color="emerald" />
-        <KpiCard title="Últimos 7 días" value={fmt(total7d)} sub="Ingresos brutos" color="blue" />
-        <KpiCard title="Insumos críticos" value={String(insumosCriticos.length)} sub="Stock por debajo del mínimo" color={insumosCriticos.length > 0 ? 'red' : 'gray'} />
-        <KpiCard title="Ticket promedio" value={cantidadHoy > 0 ? fmt(totalHoy / cantidadHoy) : '—'} sub="Hoy" color="purple" />
+        <KpiCard
+          title="Ventas hoy"
+          value={fmt(totalHoy)}
+          sub={`${cantidadHoy} transacciones`}
+          color="emerald"
+        />
+        <KpiCard
+          title="Últimos 7 días"
+          value={fmt(total7d)}
+          sub="Ingresos brutos"
+          color="blue"
+        />
+        <KpiCard
+          title="Insumos críticos"
+          value={String(insumosCriticos.length)}
+          sub="Stock por debajo del mínimo"
+          color={insumosCriticos.length > 0 ? 'red' : 'gray'}
+        />
+        <KpiCard
+          title="Ticket promedio"
+          value={cantidadHoy > 0 ? fmt(totalHoy / cantidadHoy) : '—'}
+          sub="Hoy"
+          color="purple"
+        />
       </div>
 
       {insumosCriticos.length > 0 && (
@@ -43,7 +93,9 @@ export default async function AdminDashboard() {
             {insumosCriticos.slice(0, 6).map((i: any) => (
               <div key={i.id} className="flex justify-between bg-white rounded px-3 py-2">
                 <span>{i.nombre}</span>
-                <span className="font-mono">{i.stock_actual} {i.unidad}</span>
+                <span className="font-mono">
+                  {i.stock_actual} {i.unidad}
+                </span>
               </div>
             ))}
           </div>
@@ -65,14 +117,18 @@ export default async function AdminDashboard() {
             <tbody>
               {(ventasHoy ?? []).map((r: any, i: number) => (
                 <tr key={i} className="border-b">
-                  <td className="py-2">{r.caja}</td>
+                  <td className="py-2">{r.caja_nombre}</td>
                   <td className="py-2">{r.metodo_pago}</td>
-                  <td className="py-2 text-right">{r.cantidad_ventas}</td>
-                  <td className="py-2 text-right font-mono">{fmt(Number(r.total_ventas))}</td>
+                  <td className="py-2 text-right">{r.num_ventas}</td>
+                  <td className="py-2 text-right font-mono">{fmt(Number(r.total))}</td>
                 </tr>
               ))}
               {(ventasHoy ?? []).length === 0 && (
-                <tr><td colSpan={4} className="py-8 text-center text-gray-500">Sin ventas hoy</td></tr>
+                <tr>
+                  <td colSpan={4} className="py-8 text-center text-gray-500">
+                    Sin ventas hoy
+                  </td>
+                </tr>
               )}
             </tbody>
           </table>
@@ -82,7 +138,17 @@ export default async function AdminDashboard() {
   )
 }
 
-function KpiCard({ title, value, sub, color }: { title: string; value: string; sub: string; color: string }) {
+function KpiCard({
+  title,
+  value,
+  sub,
+  color,
+}: {
+  title: string
+  value: string
+  sub: string
+  color: string
+}) {
   const colorMap: Record<string, string> = {
     emerald: 'bg-emerald-50 text-emerald-900 border-emerald-200',
     blue: 'bg-blue-50 text-blue-900 border-blue-200',

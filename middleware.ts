@@ -1,20 +1,20 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
-const ROLE_ROUTES: Record<string, string[]> = {
-  ADMIN: ['/admin', '/caja', '/cocina', '/bodega', '/domicilio'],
-  CAJERA: ['/caja'],
-  COCINA: ['/cocina'],
-  BODEGA: ['/bodega'],
-  DOMICILIARIO: ['/domicilio'],
-}
-
 const ROLE_HOME: Record<string, string> = {
   ADMIN: '/admin',
   CAJERA: '/caja',
   COCINA: '/cocina',
   BODEGA: '/bodega',
   DOMICILIARIO: '/domicilio',
+}
+
+const ROLE_ROUTES: Record<string, string[]> = {
+  ADMIN: ['/admin', '/caja', '/cocina', '/bodega', '/domicilio'],
+  CAJERA: ['/caja'],
+  COCINA: ['/cocina'],
+  BODEGA: ['/bodega'],
+  DOMICILIARIO: ['/domicilio'],
 }
 
 export async function middleware(request: NextRequest) {
@@ -37,49 +37,100 @@ export async function middleware(request: NextRequest) {
     }
   )
 
-  const { data: { user } } = await supabase.auth.getUser()
   const path = request.nextUrl.pathname
 
-  // Rutas públicas
-  if (path.startsWith('/login') || path.startsWith('/_next') || path === '/') {
-    if (user && path === '/login') {
-      const { data: profile } = await supabase
-        .from('profiles').select('rol, caja_id, activo').eq('id', user.id).single()
+  // Rutas que el middleware no procesa (defensa adicional al matcher)
+  if (
+    path.startsWith('/_next') ||
+    path.startsWith('/api') ||
+    path === '/manifest.json' ||
+    path === '/sw.js' ||
+    path === '/favicon.ico'
+  ) {
+    return response
+  }
 
-      if (profile?.activo) {
-        const home = profile.rol === 'CAJERA' && profile.caja_id
-          ? `/caja/${profile.caja_id}`
-          : ROLE_HOME[profile.rol]
-        return NextResponse.redirect(new URL(home, request.url))
+  let user = null
+  try {
+    const { data } = await supabase.auth.getUser()
+    user = data.user
+  } catch {
+    // Si auth falla, tratar como anónimo
+  }
+
+  // Login: si no hay sesión, dejar pasar; si hay sesión, redirigir a home (UNA SOLA VEZ)
+  if (path === '/login') {
+    if (!user) return response
+    // Si hay sesión, intenta llevar al home — si falla la query, no redirijas (evita loops)
+    try {
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('rol, caja_id, activo')
+        .eq('id', user.id)
+        .maybeSingle()
+
+      if (profile?.activo && profile.rol) {
+        const home =
+          profile.rol === 'CAJERA' && profile.caja_id
+            ? `/caja/${profile.caja_id}`
+            : ROLE_HOME[profile.rol] ?? '/login'
+        if (home !== '/login') {
+          return NextResponse.redirect(new URL(home, request.url))
+        }
       }
+    } catch {
+      // si falla, deja al usuario en /login para no entrar en loop
     }
     return response
   }
 
-  if (!user) return NextResponse.redirect(new URL('/login', request.url))
-
-  const { data: profile } = await supabase
-    .from('profiles').select('rol, caja_id, activo').eq('id', user.id).single()
-
-  if (!profile || !profile.activo) {
-    await supabase.auth.signOut()
-    return NextResponse.redirect(new URL('/login?error=inactive', request.url))
+  // Raíz: deja que page.tsx decida (renderiza server component)
+  if (path === '/') {
+    return response
   }
 
-  const allowedRoutes = ROLE_ROUTES[profile.rol] || []
-  const isAllowed = allowedRoutes.some(route => path.startsWith(route))
+  // Cualquier otra ruta requiere sesión
+  if (!user) {
+    const url = new URL('/login', request.url)
+    return NextResponse.redirect(url)
+  }
+
+  // Cargar profile (defensivamente)
+  let profile: { rol: string | null; caja_id: string | null; activo: boolean | null } | null = null
+  try {
+    const { data } = await supabase
+      .from('profiles')
+      .select('rol, caja_id, activo')
+      .eq('id', user.id)
+      .maybeSingle()
+    profile = data as any
+  } catch {
+    profile = null
+  }
+
+  // Si no hay profile o está inactivo, redirige a login con flag (sin signOut)
+  if (!profile || !profile.activo || !profile.rol) {
+    const url = new URL('/login', request.url)
+    url.searchParams.set('error', 'inactive')
+    return NextResponse.redirect(url)
+  }
+
+  const allowedRoutes = ROLE_ROUTES[profile.rol] ?? []
+  const isAllowed = allowedRoutes.some((r) => path.startsWith(r))
 
   if (!isAllowed) {
-    const home = profile.rol === 'CAJERA' && profile.caja_id
-      ? `/caja/${profile.caja_id}`
-      : ROLE_HOME[profile.rol]
+    const home =
+      profile.rol === 'CAJERA' && profile.caja_id
+        ? `/caja/${profile.caja_id}`
+        : ROLE_HOME[profile.rol] ?? '/login'
+    if (home === path) return response // evita auto-redirect loop
     return NextResponse.redirect(new URL(home, request.url))
   }
 
-  // CAJERA solo a su caja asignada
+  // CAJERA solo puede entrar a su propia caja
   if (profile.rol === 'CAJERA' && path.startsWith('/caja/')) {
     const cajaIdEnUrl = path.split('/')[2]
-    if (cajaIdEnUrl && cajaIdEnUrl !== profile.caja_id) {
+    if (cajaIdEnUrl && profile.caja_id && cajaIdEnUrl !== profile.caja_id) {
       return NextResponse.redirect(new URL(`/caja/${profile.caja_id}`, request.url))
     }
   }
@@ -88,5 +139,7 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/((?!_next/static|_next/image|favicon.ico|manifest.json|sw.js|.*\\.(?:svg|png|jpg|jpeg|gif|webp|mp3)$).*)'],
+  matcher: [
+    '/((?!_next/static|_next/image|favicon.ico|manifest.json|sw.js|api/|.*\\.(?:svg|png|jpg|jpeg|gif|webp|mp3|ico)$).*)',
+  ],
 }
