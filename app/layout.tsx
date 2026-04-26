@@ -4,7 +4,6 @@ import './globals.css'
 export const metadata: Metadata = {
   title: 'POS Profesional',
   description: 'Sistema de punto de venta',
-  manifest: '/manifest.json',
 }
 
 export const viewport: Viewport = {
