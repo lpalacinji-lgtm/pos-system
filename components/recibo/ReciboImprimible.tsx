@@ -65,6 +65,15 @@ export default function ReciboImprimible({ venta }: { venta: Venta }) {
   const [qrDataUrl, setQrDataUrl] = useState<string>('')
   const qrTextoRef = useRef<string>('')
 
+  // Title dinámico: el navegador lo usa como nombre del PDF al imprimir
+  useEffect(() => {
+    const fecha = new Date(venta.created_at)
+    const yyyy = fecha.getFullYear()
+    const mm = String(fecha.getMonth() + 1).padStart(2, '0')
+    const dd = String(fecha.getDate()).padStart(2, '0')
+    document.title = `Factura-${venta.numero_consecutivo}-${yyyy}-${mm}-${dd}`
+  }, [venta])
+
   // Genera el QR cuando se monta
   useEffect(() => {
     // Prioridad: cufe (DIAN) > qr_url > UUID + número como respaldo
