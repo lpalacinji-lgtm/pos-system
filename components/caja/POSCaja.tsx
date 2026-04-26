@@ -119,6 +119,10 @@ export default function POSCaja({ caja, productos, categorias, profile }: {
 
       if (error) throw error
 
+      // Abrir recibo imprimible en nueva pestaña
+      const reciboUrl = `/recibo/${ventaId}`
+      window.open(reciboUrl, '_blank', 'width=400,height=700')
+
       // Si tiene email/whatsapp, ofrecer envío
       if (cliente?.telefono) {
         if (confirm(`Venta #${ventaId} creada. ¿Enviar factura por WhatsApp?`)) {
@@ -128,8 +132,6 @@ export default function POSCaja({ caja, productos, categorias, profile }: {
             body: JSON.stringify({ venta_id: ventaId, telefono: cliente.telefono }),
           })
         }
-      } else {
-        alert(`✅ Venta creada exitosamente`)
       }
 
       // Reset
