@@ -1,22 +1,43 @@
 'use client'
 
 import { useState, useMemo } from 'react'
-import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import LogoutButton from '@/components/LogoutButton'
 
 type Producto = {
-  id: string; codigo: string; nombre: string; precio: number;
-  iva_porcentaje: number; categoria_id: string | null;
-  categoria?: { nombre: string } | null;
+  id: string
+  codigo: string
+  nombre: string
+  precio: number
+  iva_porcentaje: number
+  categoria_id: string | null
+  categoria?: { nombre: string } | null
 }
 type Categoria = { id: string; nombre: string }
+type Domiciliario = { id: string; nombre: string; telefono: string | null }
 type ItemCarrito = { producto: Producto; cantidad: number; observacion?: string }
 
-export default function POSCaja({ caja, productos, categorias, profile }: {
-  caja: any; productos: Producto[]; categorias: Categoria[]; profile: any
+const fmt = (n: number) =>
+  new Intl.NumberFormat('es-CO', {
+    style: 'currency',
+    currency: 'COP',
+    maximumFractionDigits: 0,
+  }).format(n)
+
+export default function POSCaja({
+  caja,
+  productos,
+  categorias,
+  domiciliarios,
+  profile,
+}: {
+  caja: any
+  productos: Producto[]
+  categorias: Categoria[]
+  domiciliarios: Domiciliario[]
+  profile: any
 }) {
-  const router = useRouter()
   const supabase = createClient()
   const [busqueda, setBusqueda] = useState('')
   const [categoriaActiva, setCategoriaActiva] = useState<string | null>(null)
@@ -25,6 +46,8 @@ export default function POSCaja({ caja, productos, categorias, profile }: {
   const [docCliente, setDocCliente] = useState('')
   const [esDomicilio, setEsDomicilio] = useState(false)
   const [direccion, setDireccion] = useState('')
+  const [valorDomicilio, setValorDomicilio] = useState<string>('5000')
+  const [domiciliarioId, setDomiciliarioId] = useState<string>('')
   const [metodoPago, setMetodoPago] = useState<string>('EFECTIVO')
   const [tipoFactura, setTipoFactura] = useState<'POS' | 'ELECTRONICA'>('POS')
   const [procesando, setProcesando] = useState(false)
@@ -32,76 +55,80 @@ export default function POSCaja({ caja, productos, categorias, profile }: {
 
   const productosFiltrados = useMemo(() => {
     let list = productos
-    if (categoriaActiva) list = list.filter(p => p.categoria_id === categoriaActiva)
+    if (categoriaActiva) list = list.filter((p) => p.categoria_id === categoriaActiva)
     if (busqueda) {
       const q = busqueda.toLowerCase()
-      list = list.filter(p => p.nombre.toLowerCase().includes(q) || p.codigo.toLowerCase().includes(q))
+      list = list.filter(
+        (p) => p.nombre.toLowerCase().includes(q) || p.codigo.toLowerCase().includes(q)
+      )
     }
     return list
   }, [productos, categoriaActiva, busqueda])
 
   const totales = useMemo(() => {
-    let subtotal = 0, iva = 0
-    carrito.forEach(it => {
+    let subtotal = 0
+    let iva = 0
+    carrito.forEach((it) => {
       const lineSub = it.producto.precio * it.cantidad
       subtotal += lineSub
-      iva += lineSub * Number(it.producto.iva_porcentaje) / 100
+      iva += (lineSub * Number(it.producto.iva_porcentaje)) / 100
     })
-    return { subtotal, iva, total: subtotal + iva }
-  }, [carrito])
+    const valDom = esDomicilio ? Number(valorDomicilio) || 0 : 0
+    return { subtotal, iva, valorDomicilio: valDom, total: subtotal + iva + valDom }
+  }, [carrito, esDomicilio, valorDomicilio])
 
-  const fmt = (n: number) => new Intl.NumberFormat('es-CO', {
-    style: 'currency', currency: 'COP', maximumFractionDigits: 0
-  }).format(n)
-
-  function agregarProducto(p: Producto) {
-    setCarrito(prev => {
-      const existing = prev.find(i => i.producto.id === p.id)
-      if (existing) {
-        return prev.map(i => i.producto.id === p.id ? { ...i, cantidad: i.cantidad + 1 } : i)
+  const agregar = (p: Producto) => {
+    setCarrito((prev) => {
+      const idx = prev.findIndex((i) => i.producto.id === p.id)
+      if (idx >= 0) {
+        const next = [...prev]
+        next[idx] = { ...next[idx], cantidad: next[idx].cantidad + 1 }
+        return next
       }
       return [...prev, { producto: p, cantidad: 1 }]
     })
   }
 
-  function cambiarCantidad(id: string, delta: number) {
-    setCarrito(prev => prev.flatMap(i => {
-      if (i.producto.id !== id) return [i]
-      const nueva = i.cantidad + delta
-      return nueva > 0 ? [{ ...i, cantidad: nueva }] : []
-    }))
+  const cambiarCantidad = (id: string, delta: number) => {
+    setCarrito((prev) =>
+      prev.flatMap((i) => {
+        if (i.producto.id !== id) return [i]
+        const nueva = i.cantidad + delta
+        return nueva <= 0 ? [] : [{ ...i, cantidad: nueva }]
+      })
+    )
   }
 
-  function quitarItem(id: string) {
-    setCarrito(prev => prev.filter(i => i.producto.id !== id))
-  }
+  const quitar = (id: string) =>
+    setCarrito((prev) => prev.filter((i) => i.producto.id !== id))
 
-  async function buscarCliente() {
+  const buscarCliente = async () => {
     if (!docCliente.trim()) return
-    const res = await fetch(`/api/nit/${docCliente.trim()}`)
-    const data = await res.json()
-    if (data.cliente) setCliente(data.cliente)
+    const r = await fetch(`/api/nit/${encodeURIComponent(docCliente.trim())}`)
+    const j = await r.json()
+    if (j.cliente) setCliente(j.cliente)
     else alert('Cliente no encontrado. Llena los datos manualmente.')
   }
 
-  async function cobrar() {
+  const cobrar = async () => {
     if (carrito.length === 0) return alert('Carrito vacío')
-    if (esDomicilio && !direccion.trim()) return alert('Falta dirección de entrega')
+    if (esDomicilio && !direccion.trim())
+      return alert('Falta dirección de entrega')
 
     setProcesando(true)
     try {
-      // Si hay cliente nuevo (de API externa), guardarlo primero
       let clienteId = cliente?.id ?? null
-      if (cliente && !cliente.id && cliente.documento) {
+      if (cliente && !cliente.id && cliente.nit) {
         const { data: nuevoCli, error } = await supabase
           .from('clientes')
-          .upsert(cliente, { onConflict: 'documento' })
-          .select('id').single()
+          .upsert(cliente, { onConflict: 'nit' })
+          .select('id')
+          .single()
         if (error) throw error
         clienteId = nuevoCli.id
       }
 
-      const items = carrito.map(it => ({
+      const items = carrito.map((it) => ({
         producto_id: it.producto.id,
         cantidad: it.cantidad,
         observacion: it.observacion || null,
@@ -115,15 +142,17 @@ export default function POSCaja({ caja, productos, categorias, profile }: {
         p_es_domicilio: esDomicilio,
         p_direccion_entrega: esDomicilio ? direccion : null,
         p_items: items,
+        p_valor_domicilio: esDomicilio ? Number(valorDomicilio) || 0 : 0,
+        p_domiciliario_id: esDomicilio && domiciliarioId ? domiciliarioId : null,
+        p_observaciones: null,
       })
 
       if (error) throw error
 
-      // Abrir recibo imprimible en nueva pestaña
-      const reciboUrl = `/recibo/${ventaId}`
-      window.open(reciboUrl, '_blank', 'width=400,height=700')
+      // Abrir recibo en nueva pestaña
+      window.open(`/recibo/${ventaId}`, '_blank', 'width=420,height=720')
 
-      // Si tiene email/whatsapp, ofrecer envío
+      // WhatsApp opcional
       if (cliente?.telefono) {
         if (confirm(`Venta #${ventaId} creada. ¿Enviar factura por WhatsApp?`)) {
           await fetch('/api/facturacion/whatsapp', {
@@ -140,8 +169,9 @@ export default function POSCaja({ caja, productos, categorias, profile }: {
       setDocCliente('')
       setEsDomicilio(false)
       setDireccion('')
+      setValorDomicilio('5000')
+      setDomiciliarioId('')
       setShowCobro(false)
-      router.refresh()
     } catch (err: any) {
       alert('❌ Error: ' + err.message)
     } finally {
@@ -150,143 +180,234 @@ export default function POSCaja({ caja, productos, categorias, profile }: {
   }
 
   return (
-    <div className="h-screen flex flex-col bg-gray-100">
+    <div className="min-h-screen bg-gray-50 flex flex-col">
       {/* Header */}
-      <header className="bg-emerald-700 text-white px-4 py-3 flex justify-between items-center shadow">
+      <header className="bg-emerald-600 text-white px-4 py-3 flex items-center justify-between">
         <div>
           <h1 className="text-lg font-bold">{caja.nombre}</h1>
-          <p className="text-xs opacity-80">{profile.nombre}</p>
+          <p className="text-xs opacity-80">
+            {profile.nombre} · {caja.ubicacion}
+          </p>
         </div>
-        <LogoutButton className="text-white/80 hover:text-white" />
+        <div className="flex items-center gap-2">
+          <Link
+            href={`/caja/${caja.id}/historial`}
+            className="bg-emerald-700 hover:bg-emerald-800 text-white text-xs px-3 py-1.5 rounded-lg"
+          >
+            📜 Historial de hoy
+          </Link>
+          <LogoutButton className="bg-emerald-700 hover:bg-emerald-800 text-white text-xs px-3 py-1.5" />
+        </div>
       </header>
 
-      <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
+      <div className="flex-1 grid grid-cols-1 lg:grid-cols-[1fr_360px]">
         {/* Productos */}
-        <div className="flex-1 flex flex-col p-4 overflow-hidden">
-          <div className="flex gap-2 mb-3">
+        <main className="p-4 overflow-y-auto">
+          <div className="mb-3 flex flex-col md:flex-row gap-2">
             <input
+              type="text"
+              placeholder="Buscar producto…"
               value={busqueda}
-              onChange={e => setBusqueda(e.target.value)}
-              placeholder="Buscar producto o código..."
-              className="flex-1 px-4 py-3 border rounded-lg"
+              onChange={(e) => setBusqueda(e.target.value)}
+              className="flex-1 border border-gray-300 rounded-lg px-3 py-2"
             />
           </div>
-          <div className="flex gap-2 overflow-x-auto pb-2 mb-3">
-            <button onClick={() => setCategoriaActiva(null)}
-              className={`px-4 py-2 rounded-lg whitespace-nowrap ${!categoriaActiva ? 'bg-emerald-600 text-white' : 'bg-white border'}`}>
+
+          <div className="flex gap-2 mb-3 overflow-x-auto pb-2">
+            <button
+              onClick={() => setCategoriaActiva(null)}
+              className={`px-3 py-1.5 rounded-lg whitespace-nowrap text-sm ${
+                !categoriaActiva
+                  ? 'bg-emerald-600 text-white'
+                  : 'bg-white border'
+              }`}
+            >
               Todas
             </button>
-            {categorias.map(c => (
-              <button key={c.id} onClick={() => setCategoriaActiva(c.id)}
-                className={`px-4 py-2 rounded-lg whitespace-nowrap ${categoriaActiva === c.id ? 'bg-emerald-600 text-white' : 'bg-white border'}`}>
+            {categorias.map((c) => (
+              <button
+                key={c.id}
+                onClick={() => setCategoriaActiva(c.id)}
+                className={`px-3 py-1.5 rounded-lg whitespace-nowrap text-sm ${
+                  categoriaActiva === c.id
+                    ? 'bg-emerald-600 text-white'
+                    : 'bg-white border'
+                }`}
+              >
                 {c.nombre}
               </button>
             ))}
           </div>
-          <div className="flex-1 overflow-y-auto">
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-              {productosFiltrados.map(p => (
-                <button key={p.id} onClick={() => agregarProducto(p)}
-                  className="bg-white border rounded-lg p-3 text-left hover:shadow-md hover:border-emerald-500 transition active:scale-95">
-                  <p className="font-semibold text-sm leading-tight">{p.nombre}</p>
-                  <p className="text-xs text-gray-500 mt-1">{p.codigo}</p>
-                  <p className="text-emerald-700 font-bold mt-2">{fmt(Number(p.precio))}</p>
-                </button>
-              ))}
-            </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+            {productosFiltrados.map((p) => (
+              <button
+                key={p.id}
+                onClick={() => agregar(p)}
+                className="bg-white border border-gray-200 rounded-lg p-3 text-left hover:border-emerald-500 hover:shadow-md transition"
+              >
+                <p className="text-xs text-gray-500 font-mono">{p.codigo}</p>
+                <p className="font-medium text-gray-800 line-clamp-2">{p.nombre}</p>
+                <p className="text-emerald-600 font-bold mt-1">{fmt(p.precio)}</p>
+                {p.iva_porcentaje > 0 && (
+                  <p className="text-xs text-gray-400">+ IVA {p.iva_porcentaje}%</p>
+                )}
+              </button>
+            ))}
           </div>
-        </div>
+        </main>
 
         {/* Carrito */}
-        <div className="w-full lg:w-96 bg-white border-l flex flex-col">
+        <aside className="bg-white border-l border-gray-200 flex flex-col max-h-screen">
           <div className="p-4 border-b">
             <h2 className="font-bold text-lg">🛒 Pedido ({carrito.length})</h2>
           </div>
-          <div className="flex-1 overflow-y-auto p-4 space-y-2">
+          <div className="flex-1 overflow-y-auto p-3 space-y-2">
             {carrito.length === 0 && (
-              <p className="text-center text-gray-400 mt-12">Selecciona productos</p>
+              <p className="text-gray-400 text-center py-8 text-sm">
+                Toca un producto para agregarlo
+              </p>
             )}
-            {carrito.map(it => (
-              <div key={it.producto.id} className="border rounded-lg p-3">
-                <div className="flex justify-between items-start mb-2">
-                  <div className="flex-1">
-                    <p className="font-medium text-sm">{it.producto.nombre}</p>
-                    <p className="text-xs text-gray-500">{fmt(Number(it.producto.precio))} c/u</p>
-                  </div>
-                  <button onClick={() => quitarItem(it.producto.id)} className="text-red-500 text-sm">✕</button>
+            {carrito.map((it) => (
+              <div
+                key={it.producto.id}
+                className="bg-gray-50 rounded-lg p-2 flex items-center gap-2"
+              >
+                <div className="flex-1 min-w-0">
+                  <p className="font-medium text-sm truncate">{it.producto.nombre}</p>
+                  <p className="text-xs text-gray-500">
+                    {fmt(it.producto.precio)} c/u
+                  </p>
                 </div>
-                <div className="flex items-center gap-2">
-                  <button onClick={() => cambiarCantidad(it.producto.id, -1)}
-                    className="w-7 h-7 bg-gray-200 rounded">−</button>
-                  <span className="w-8 text-center font-medium">{it.cantidad}</span>
-                  <button onClick={() => cambiarCantidad(it.producto.id, +1)}
-                    className="w-7 h-7 bg-gray-200 rounded">+</button>
-                  <span className="ml-auto font-bold">
-                    {fmt(Number(it.producto.precio) * it.cantidad)}
-                  </span>
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => cambiarCantidad(it.producto.id, -1)}
+                    className="w-7 h-7 bg-gray-200 hover:bg-gray-300 rounded"
+                  >
+                    −
+                  </button>
+                  <span className="w-7 text-center font-bold">{it.cantidad}</span>
+                  <button
+                    onClick={() => cambiarCantidad(it.producto.id, 1)}
+                    className="w-7 h-7 bg-emerald-500 hover:bg-emerald-600 text-white rounded"
+                  >
+                    +
+                  </button>
                 </div>
+                <button
+                  onClick={() => quitar(it.producto.id)}
+                  className="text-red-500 hover:text-red-700 text-lg"
+                  title="Quitar"
+                >
+                  ×
+                </button>
               </div>
             ))}
           </div>
-          <div className="border-t p-4 space-y-2 bg-gray-50">
+
+          <div className="border-t p-4 space-y-2 bg-white">
             <div className="flex justify-between text-sm">
-              <span>Subtotal</span><span>{fmt(totales.subtotal)}</span>
+              <span>Subtotal:</span>
+              <span className="tabular-nums">{fmt(totales.subtotal)}</span>
             </div>
-            <div className="flex justify-between text-sm text-gray-600">
-              <span>IVA</span><span>{fmt(totales.iva)}</span>
+            <div className="flex justify-between text-sm">
+              <span>IVA:</span>
+              <span className="tabular-nums">{fmt(totales.iva)}</span>
             </div>
-            <div className="flex justify-between font-bold text-lg pt-2 border-t">
-              <span>Total</span><span className="text-emerald-700">{fmt(totales.total)}</span>
+            <div className="flex justify-between text-xl font-bold pt-1 border-t">
+              <span>Total:</span>
+              <span className="text-emerald-600 tabular-nums">{fmt(totales.total)}</span>
             </div>
-            <button onClick={() => setShowCobro(true)} disabled={carrito.length === 0}
-              className="w-full bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-300 text-white font-bold py-3 rounded-lg mt-2">
-              Cobrar
+            <button
+              onClick={() => setShowCobro(true)}
+              disabled={carrito.length === 0}
+              className="w-full bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-300 text-white font-bold py-3 rounded-lg mt-2"
+            >
+              💳 Cobrar
             </button>
           </div>
-        </div>
+        </aside>
       </div>
 
       {/* Modal cobro */}
       {showCobro && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg p-6 max-w-lg w-full max-h-[90vh] overflow-y-auto">
-            <h3 className="text-xl font-bold mb-4">Procesar venta — {fmt(totales.total)}</h3>
+            <h3 className="text-xl font-bold mb-4">
+              Procesar venta — {fmt(totales.total)}
+            </h3>
 
             <div className="space-y-3">
               <div className="grid grid-cols-3 gap-2">
-                <label className="text-sm font-medium col-span-3">Cliente (NIT/CC)</label>
-                <input value={docCliente} onChange={e => setDocCliente(e.target.value)}
-                  placeholder="Documento" className="col-span-2 border rounded-lg px-3 py-2" />
-                <button onClick={buscarCliente} className="bg-blue-600 text-white rounded-lg">Buscar</button>
+                <label className="text-sm font-medium col-span-3">
+                  Cliente (NIT/CC)
+                </label>
+                <input
+                  value={docCliente}
+                  onChange={(e) => setDocCliente(e.target.value)}
+                  placeholder="Documento"
+                  className="col-span-2 border rounded-lg px-3 py-2"
+                />
+                <button
+                  onClick={buscarCliente}
+                  className="bg-blue-600 text-white rounded-lg"
+                >
+                  Buscar
+                </button>
               </div>
 
               {cliente && (
                 <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm">
-                  <p className="font-medium">{cliente.razon_social}</p>
-                  <p className="text-xs text-gray-600">{cliente.email} · {cliente.telefono}</p>
+                  <p className="font-medium">{cliente.nombre || cliente.razon_social}</p>
+                  <p className="text-xs text-gray-600">
+                    {cliente.email} · {cliente.telefono}
+                  </p>
                 </div>
               )}
 
               <div>
-                <label className="text-sm font-medium block mb-1">Tipo de factura</label>
+                <label className="text-sm font-medium block mb-1">
+                  Tipo de factura
+                </label>
                 <div className="grid grid-cols-2 gap-2">
-                  <button onClick={() => setTipoFactura('POS')}
-                    className={`py-2 rounded-lg border ${tipoFactura === 'POS' ? 'bg-emerald-600 text-white border-emerald-600' : ''}`}>
+                  <button
+                    onClick={() => setTipoFactura('POS')}
+                    className={`py-2 rounded-lg border ${
+                      tipoFactura === 'POS'
+                        ? 'bg-emerald-600 text-white border-emerald-600'
+                        : ''
+                    }`}
+                  >
                     POS
                   </button>
-                  <button onClick={() => setTipoFactura('ELECTRONICA')}
-                    className={`py-2 rounded-lg border ${tipoFactura === 'ELECTRONICA' ? 'bg-emerald-600 text-white border-emerald-600' : ''}`}>
+                  <button
+                    onClick={() => setTipoFactura('ELECTRONICA')}
+                    className={`py-2 rounded-lg border ${
+                      tipoFactura === 'ELECTRONICA'
+                        ? 'bg-emerald-600 text-white border-emerald-600'
+                        : ''
+                    }`}
+                  >
                     Electrónica
                   </button>
                 </div>
               </div>
 
               <div>
-                <label className="text-sm font-medium block mb-1">Método de pago</label>
+                <label className="text-sm font-medium block mb-1">
+                  Método de pago
+                </label>
                 <div className="grid grid-cols-3 gap-2">
-                  {['EFECTIVO', 'TARJETA', 'NEQUI', 'DAVIPLATA', 'BANCOLOMBIA', 'TRANSFERENCIA'].map(m => (
-                    <button key={m} onClick={() => setMetodoPago(m)}
-                      className={`py-2 px-2 rounded-lg border text-xs ${metodoPago === m ? 'bg-emerald-600 text-white border-emerald-600' : ''}`}>
+                  {['EFECTIVO', 'TARJETA', 'NEQUI', 'DAVIPLATA', 'BANCOLOMBIA', 'TRANSFERENCIA'].map((m) => (
+                    <button
+                      key={m}
+                      onClick={() => setMetodoPago(m)}
+                      className={`py-2 px-2 rounded-lg border text-xs ${
+                        metodoPago === m
+                          ? 'bg-emerald-600 text-white border-emerald-600'
+                          : ''
+                      }`}
+                    >
                       {m}
                     </button>
                   ))}
@@ -295,20 +416,74 @@ export default function POSCaja({ caja, productos, categorias, profile }: {
 
               <div>
                 <label className="flex items-center gap-2 text-sm font-medium">
-                  <input type="checkbox" checked={esDomicilio} onChange={e => setEsDomicilio(e.target.checked)} />
-                  Pedido a domicilio
+                  <input
+                    type="checkbox"
+                    checked={esDomicilio}
+                    onChange={(e) => setEsDomicilio(e.target.checked)}
+                  />
+                  🛵 Pedido a domicilio
                 </label>
+
                 {esDomicilio && (
-                  <input value={direccion} onChange={e => setDireccion(e.target.value)}
-                    placeholder="Dirección de entrega" className="w-full border rounded-lg px-3 py-2 mt-2" />
+                  <div className="space-y-2 mt-2 bg-orange-50 border border-orange-200 rounded-lg p-3">
+                    <div>
+                      <label className="text-xs text-gray-700 font-medium">
+                        Dirección de entrega *
+                      </label>
+                      <input
+                        value={direccion}
+                        onChange={(e) => setDireccion(e.target.value)}
+                        placeholder="Cra 50 #80-45 apto 302"
+                        className="w-full border rounded-lg px-3 py-2 mt-1"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs text-gray-700 font-medium">
+                        Valor del domicilio (COP)
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        value={valorDomicilio}
+                        onChange={(e) => setValorDomicilio(e.target.value)}
+                        className="w-full border rounded-lg px-3 py-2 mt-1"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs text-gray-700 font-medium">
+                        Asignar domiciliario (opcional)
+                      </label>
+                      <select
+                        value={domiciliarioId}
+                        onChange={(e) => setDomiciliarioId(e.target.value)}
+                        className="w-full border rounded-lg px-3 py-2 mt-1 bg-white"
+                      >
+                        <option value="">— Que cualquier domi disponible lo tome —</option>
+                        {domiciliarios.map((d) => (
+                          <option key={d.id} value={d.id}>
+                            {d.nombre}
+                            {d.telefono ? ` · ${d.telefono}` : ''}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
                 )}
               </div>
             </div>
 
             <div className="flex gap-2 justify-end mt-6">
-              <button onClick={() => setShowCobro(false)} className="px-4 py-2 border rounded-lg">Cancelar</button>
-              <button onClick={cobrar} disabled={procesando}
-                className="bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-400 text-white px-6 py-2 rounded-lg font-medium">
+              <button
+                onClick={() => setShowCobro(false)}
+                className="px-4 py-2 border rounded-lg"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={cobrar}
+                disabled={procesando}
+                className="bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-400 text-white px-6 py-2 rounded-lg font-medium"
+              >
                 {procesando ? 'Procesando...' : `Confirmar ${fmt(totales.total)}`}
               </button>
             </div>

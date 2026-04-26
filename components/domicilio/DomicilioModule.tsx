@@ -95,8 +95,22 @@ export default function DomicilioModule({
         en_ruta_at: new Date().toISOString(),
       })
       .eq('id', id)
-      .eq('estado', 'LISTO') // optimistic concurrency
+      .eq('estado', 'LISTO')
       .is('domiciliario_id', null)
+    if (error) alert('Error: ' + error.message)
+  }
+
+  // Para pedidos pre-asignados a mí (con estado LISTO)
+  const iniciarEntrega = async (id: string) => {
+    const { error } = await supabase
+      .from('ventas')
+      .update({
+        estado: 'EN_RUTA',
+        en_ruta_at: new Date().toISOString(),
+      })
+      .eq('id', id)
+      .eq('estado', 'LISTO')
+      .eq('domiciliario_id', userId)
     if (error) alert('Error: ' + error.message)
   }
 
@@ -139,8 +153,16 @@ export default function DomicilioModule({
     window.location.href = `tel:+57${tel.replace(/\D/g, '').replace(/^57/, '')}`
   }
 
-  const disponibles = pedidos.filter((p) => p.estado === 'LISTO' && !p.domiciliario_id)
-  const mios = pedidos.filter((p) => p.domiciliario_id === userId && p.estado === 'EN_RUTA')
+  // Disponibles: LISTO sin domiciliario asignado
+  const disponibles = pedidos.filter(
+    (p) => p.estado === 'LISTO' && !p.domiciliario_id
+  )
+  // Mis entregas: pre-asignados a mí (LISTO con mi id) + ya tomados (EN_RUTA con mi id)
+  const mios = pedidos.filter(
+    (p) =>
+      p.domiciliario_id === userId &&
+      (p.estado === 'LISTO' || p.estado === 'EN_RUTA')
+  )
 
   const lista = filtro === 'disponibles' ? disponibles : mios
 
@@ -219,12 +241,19 @@ export default function DomicilioModule({
                 </button>
               )}
 
-              {p.estado === 'LISTO' ? (
+              {p.estado === 'LISTO' && !p.domiciliario_id ? (
                 <button
                   onClick={() => tomarPedido(p.id)}
                   className="w-full bg-blue-500 hover:bg-blue-600 text-white font-bold py-3 rounded-lg"
                 >
                   Tomar este pedido
+                </button>
+              ) : p.estado === 'LISTO' && p.domiciliario_id === userId ? (
+                <button
+                  onClick={() => iniciarEntrega(p.id)}
+                  className="w-full bg-amber-500 hover:bg-amber-600 text-white font-bold py-3 rounded-lg"
+                >
+                  🚀 Iniciar entrega
                 </button>
               ) : (
                 <button

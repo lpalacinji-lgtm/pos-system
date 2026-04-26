@@ -17,12 +17,14 @@ export default async function ReciboPage({
     .select(
       `
       id, numero_consecutivo, created_at, subtotal, iva, descuento, total,
-      metodo_pago, tipo_factura, es_domicilio, direccion_entrega, observaciones,
+      valor_domicilio, metodo_pago, tipo_factura, es_domicilio, direccion_entrega,
+      observaciones, cufe, qr_url,
       caja:cajas(nombre, ubicacion),
       cajera:profiles!ventas_cajera_id_fkey(nombre),
+      domiciliario:profiles!ventas_domiciliario_id_fkey(nombre, telefono),
       cliente:clientes(nit, nombre, telefono, direccion),
       items:venta_items(
-        cantidad, precio_unitario, iva_porcentaje, subtotal, total,
+        cantidad, precio_unitario, iva_porcentaje, subtotal, total, observacion,
         producto:productos(codigo, nombre)
       )
     `
