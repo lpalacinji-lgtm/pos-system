@@ -10,9 +10,9 @@ const ROLE_HOME: Record<string, string> = {
 }
 
 const ROLE_ROUTES: Record<string, string[]> = {
-  ADMIN: ['/admin', '/caja', '/cocina', '/bodega', '/domicilio', '/recibo'],
-  CAJERA: ['/caja', '/recibo'],
-  COCINA: ['/cocina'],
+  ADMIN: ['/admin', '/caja', '/cocina', '/bodega', '/domicilio', '/recibo', '/comanda'],
+  CAJERA: ['/caja', '/recibo', '/comanda'],
+  COCINA: ['/cocina', '/comanda'],
   BODEGA: ['/bodega'],
   DOMICILIARIO: ['/domicilio'],
 }
