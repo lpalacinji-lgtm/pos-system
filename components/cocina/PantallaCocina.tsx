@@ -6,7 +6,7 @@ import { createBrowserSupabase } from '@/lib/supabase/client'
 type Item = {
   id: string
   cantidad: number
-  notas: string | null
+  observacion: string | null
   producto: { nombre: string; tiempo_preparacion_min: number | null }
 }
 
@@ -80,7 +80,7 @@ export default function PantallaCocina({
                 `id, numero_consecutivo, estado, es_domicilio, direccion_entrega, created_at, cocina_at, listo_at,
                  caja:cajas(nombre),
                  cliente:clientes(nombre, telefono),
-                 items:venta_items(id, cantidad, notas, producto:productos(nombre, tiempo_preparacion_min))`
+                 items:venta_items(id, cantidad, observacion, producto:productos(nombre, tiempo_preparacion_min))`
               )
               .eq('id', nuevo.id)
               .single()
@@ -227,9 +227,9 @@ export default function PantallaCocina({
                           {item.producto.nombre}
                         </span>
                       </div>
-                      {item.notas && (
+                      {item.observacion && (
                         <p className="text-sm text-amber-300 mt-1 pl-1">
-                          ⚠️ {item.notas}
+                          ⚠️ {item.observacion}
                         </p>
                       )}
                     </li>

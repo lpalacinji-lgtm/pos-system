@@ -39,7 +39,7 @@ export default async function CocinaPage() {
       listo_at,
       caja:cajas(nombre),
       cliente:clientes(nombre, telefono),
-      items:venta_items(id, cantidad, notas, producto:productos(nombre, tiempo_preparacion_min))
+      items:venta_items(id, cantidad, observacion, producto:productos(nombre, tiempo_preparacion_min))
     `
     )
     .in('estado', ['EN_COCINA', 'LISTO'])
