@@ -64,8 +64,6 @@ export default function POSCaja({
   const [procesando, setProcesando] = useState(false)
   const [showCobro, setShowCobro] = useState(false)
 
-  const cajaCerrada = !!caja.cerrada_en
-
   const productosFiltrados = useMemo(() => {
     let list = productos
     if (categoriaActiva) list = list.filter((p) => p.categoria_id === categoriaActiva)
@@ -235,6 +233,12 @@ export default function POSCaja({
         </div>
         <div className="flex items-center gap-2">
           <Link
+            href={`/caja/${caja.id}/cuadre`}
+            className="bg-emerald-700 hover:bg-emerald-800 text-white text-xs px-3 py-1.5 rounded-lg"
+          >
+            📊 Cuadre
+          </Link>
+          <Link
             href={`/caja/${caja.id}/historial`}
             className="bg-emerald-700 hover:bg-emerald-800 text-white text-xs px-3 py-1.5 rounded-lg"
           >
@@ -244,15 +248,8 @@ export default function POSCaja({
         </div>
       </header>
 
-      {/* Banner caja cerrada */}
-      {cajaCerrada && (
-        <div className="bg-red-600 text-white px-4 py-3 text-center font-bold sticky top-[56px] z-20">
-          🔒 ESTA CAJA ESTÁ CERRADA — Contacta al administrador para reabrirla
-        </div>
-      )}
-
       {/* Banner pedidos listos */}
-      {!cajaCerrada && <BannerListos cajaId={caja.id} />}
+      <BannerListos cajaId={caja.id} />
 
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-[1fr_360px]">
         {/* Productos */}
@@ -264,7 +261,6 @@ export default function POSCaja({
               value={busqueda}
               onChange={(e) => setBusqueda(e.target.value)}
               className="w-full border border-gray-300 rounded-lg px-3 py-2"
-              disabled={cajaCerrada}
             />
           </div>
 
@@ -298,9 +294,8 @@ export default function POSCaja({
             {productosFiltrados.map((p) => (
               <button
                 key={p.id}
-                onClick={() => !cajaCerrada && agregar(p)}
-                disabled={cajaCerrada}
-                className="bg-white border border-gray-200 rounded-lg p-3 text-left hover:border-emerald-500 hover:shadow-md transition disabled:opacity-50"
+                onClick={() => agregar(p)}
+                  className="bg-white border border-gray-200 rounded-lg p-3 text-left hover:border-emerald-500 hover:shadow-md transition disabled:opacity-50"
               >
                 <p className="text-xs text-gray-500 font-mono">{p.codigo}</p>
                 <p className="font-medium text-gray-800 line-clamp-2">{p.nombre}</p>
@@ -376,7 +371,7 @@ export default function POSCaja({
             </div>
             <button
               onClick={() => setShowCobro(true)}
-              disabled={carrito.length === 0 || cajaCerrada}
+              disabled={carrito.length === 0}
               className="w-full bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-300 text-white font-bold py-3 rounded-lg mt-2"
             >
               💳 Cobrar

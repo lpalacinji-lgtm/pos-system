@@ -9,8 +9,6 @@ type Caja = {
   id: string
   nombre: string
   ubicacion: string | null
-  cerrada_en: string | null
-  cerrada_por_profile: { nombre: string } | null
 }
 
 type CierreHistorico = {
@@ -59,65 +57,39 @@ export default function CierresModule({
     setObs('')
     setCajaSeleccionada(null)
     router.refresh()
-    // Abrir el detalle del cierre recién creado
     window.open(`/admin/cierres/${data}`, '_blank')
-  }
-
-  const reabrirCaja = async (cajaId: string) => {
-    if (!confirm('¿Reabrir esta caja? La cajera podrá vender de nuevo.')) return
-    setProcesando(cajaId)
-    const { error } = await supabase.rpc('reabrir_caja', { p_caja_id: cajaId })
-    setProcesando(null)
-    if (error) return alert('Error: ' + error.message)
-    router.refresh()
   }
 
   return (
     <div className="space-y-6">
-      <Link
-        href="/admin"
-        className="text-emerald-600 hover:underline text-sm"
-      >
+      <Link href="/admin" className="text-emerald-600 hover:underline text-sm">
         ← Volver al dashboard
       </Link>
 
-      {/* Lista de cajas */}
+      {/* Cerrar caja */}
       <section>
-        <h2 className="text-lg font-semibold mb-2">Estado de cajas</h2>
+        <h2 className="text-lg font-semibold mb-2">Cerrar caja</h2>
+        <p className="text-sm text-gray-600 mb-3">
+          Al cerrar, se genera un snapshot del periodo y la caja vuelve a comenzar
+          desde cero. La cajera no se interrumpe.
+        </p>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           {cajas.map((c) => (
             <div
               key={c.id}
-              className={`bg-white border rounded-xl p-4 shadow-sm ${
-                c.cerrada_en ? 'border-red-300' : 'border-emerald-300'
-              }`}
+              className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm"
             >
               <div className="flex items-start justify-between mb-2">
                 <div>
                   <h3 className="font-bold">{c.nombre}</h3>
                   <p className="text-xs text-gray-500">{c.ubicacion}</p>
                 </div>
-                <span
-                  className={`text-xs font-bold px-2 py-1 rounded-full ${
-                    c.cerrada_en
-                      ? 'bg-red-100 text-red-700'
-                      : 'bg-emerald-100 text-emerald-700'
-                  }`}
-                >
-                  {c.cerrada_en ? '🔒 CERRADA' : '🟢 ABIERTA'}
+                <span className="text-xs font-bold px-2 py-1 rounded-full bg-emerald-100 text-emerald-700">
+                  🟢 OPERATIVA
                 </span>
               </div>
 
-              {c.cerrada_en && (
-                <p className="text-xs text-gray-500 mb-2">
-                  Cerrada el{' '}
-                  {new Date(c.cerrada_en).toLocaleString('es-CO')}{' '}
-                  {c.cerrada_por_profile?.nombre &&
-                    `por ${c.cerrada_por_profile.nombre}`}
-                </p>
-              )}
-
-              {!c.cerrada_en && cajaSeleccionada === c.id && (
+              {cajaSeleccionada === c.id ? (
                 <div className="mt-2 space-y-2">
                   <textarea
                     value={obs}
@@ -145,25 +117,13 @@ export default function CierresModule({
                     </button>
                   </div>
                 </div>
-              )}
-
-              {!c.cerrada_en && cajaSeleccionada !== c.id && (
+              ) : (
                 <button
                   onClick={() => setCajaSeleccionada(c.id)}
                   disabled={procesando !== null}
                   className="w-full bg-red-600 hover:bg-red-700 disabled:bg-gray-400 text-white font-bold py-2 rounded-lg text-sm mt-2"
                 >
-                  🔒 Cerrar caja
-                </button>
-              )}
-
-              {c.cerrada_en && (
-                <button
-                  onClick={() => reabrirCaja(c.id)}
-                  disabled={procesando === c.id}
-                  className="w-full bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-400 text-white font-bold py-2 rounded-lg text-sm mt-2"
-                >
-                  {procesando === c.id ? '...' : '🔓 Reabrir caja'}
+                  🔒 Cerrar caja y generar reporte
                 </button>
               )}
             </div>
@@ -210,7 +170,9 @@ export default function CierresModule({
                         minute: '2-digit',
                       })}
                     </td>
-                    <td className="py-2 px-3 text-right">{c.cantidad_ventas}</td>
+                    <td className="py-2 px-3 text-right">
+                      {c.cantidad_ventas}
+                    </td>
                     <td className="py-2 px-3 text-right font-bold tabular-nums">
                       {fmt(Number(c.total_ventas))}
                     </td>
