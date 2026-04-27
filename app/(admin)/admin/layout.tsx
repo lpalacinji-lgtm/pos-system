@@ -23,6 +23,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
           <NavLink href="/admin/usuarios" label="👥 Usuarios y Cajas" />
           <NavLink href="/admin/productos" label="🍕 Productos" />
           <NavLink href="/admin/recetas" label="📋 Escandallos" />
+          <NavLink href="/admin/cierres" label="🔒 Cierre de Caja" />
           <NavLink href="/admin/reportes" label="📈 Reportes" />
           <NavLink href="/admin/auditoria" label="🔍 Auditoría Bodega" />
         </nav>
