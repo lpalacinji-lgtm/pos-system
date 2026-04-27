@@ -11,7 +11,7 @@ const ROLE_HOME: Record<string, string> = {
 
 const ROLE_ROUTES: Record<string, string[]> = {
   ADMIN: ['/admin', '/caja', '/cocina', '/bodega', '/domicilio', '/recibo', '/comanda'],
-  CAJERA: ['/caja', '/recibo', '/comanda'],
+  CAJERA: ['/caja', '/recibo', '/comanda', '/admin/cierres'],
   COCINA: ['/cocina', '/comanda'],
   BODEGA: ['/bodega'],
   DOMICILIARIO: ['/domicilio'],
@@ -39,7 +39,6 @@ export async function middleware(request: NextRequest) {
 
   const path = request.nextUrl.pathname
 
-  // Rutas que el middleware no procesa (defensa adicional al matcher)
   if (
     path.startsWith('/_next') ||
     path.startsWith('/api') ||
@@ -54,14 +53,10 @@ export async function middleware(request: NextRequest) {
   try {
     const { data } = await supabase.auth.getUser()
     user = data.user
-  } catch {
-    // Si auth falla, tratar como anónimo
-  }
+  } catch {}
 
-  // Login: si no hay sesión, dejar pasar; si hay sesión, redirigir a home (UNA SOLA VEZ)
   if (path === '/login') {
     if (!user) return response
-    // Si hay sesión, intenta llevar al home — si falla la query, no redirijas (evita loops)
     try {
       const { data: profile } = await supabase
         .from('profiles')
@@ -78,24 +73,19 @@ export async function middleware(request: NextRequest) {
           return NextResponse.redirect(new URL(home, request.url))
         }
       }
-    } catch {
-      // si falla, deja al usuario en /login para no entrar en loop
-    }
+    } catch {}
     return response
   }
 
-  // Raíz: deja que page.tsx decida (renderiza server component)
   if (path === '/') {
     return response
   }
 
-  // Cualquier otra ruta requiere sesión
   if (!user) {
     const url = new URL('/login', request.url)
     return NextResponse.redirect(url)
   }
 
-  // Cargar profile (defensivamente)
   let profile: { rol: string | null; caja_id: string | null; activo: boolean | null } | null = null
   try {
     const { data } = await supabase
@@ -108,7 +98,6 @@ export async function middleware(request: NextRequest) {
     profile = null
   }
 
-  // Si no hay profile o está inactivo, redirige a login con flag (sin signOut)
   if (!profile || !profile.activo || !profile.rol) {
     const url = new URL('/login', request.url)
     url.searchParams.set('error', 'inactive')
@@ -123,11 +112,10 @@ export async function middleware(request: NextRequest) {
       profile.rol === 'CAJERA' && profile.caja_id
         ? `/caja/${profile.caja_id}`
         : ROLE_HOME[profile.rol] ?? '/login'
-    if (home === path) return response // evita auto-redirect loop
+    if (home === path) return response
     return NextResponse.redirect(new URL(home, request.url))
   }
 
-  // CAJERA solo puede entrar a su propia caja
   if (profile.rol === 'CAJERA' && path.startsWith('/caja/')) {
     const cajaIdEnUrl = path.split('/')[2]
     if (cajaIdEnUrl && profile.caja_id && cajaIdEnUrl !== profile.caja_id) {

@@ -4,6 +4,8 @@ import { useState, useMemo } from 'react'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import LogoutButton from '@/components/LogoutButton'
+import BannerListos from '@/components/caja/BannerListos'
+import ClienteFormFields, { ClienteData } from '@/components/caja/ClienteFormFields'
 
 type Producto = {
   id: string
@@ -25,6 +27,15 @@ const fmt = (n: number) =>
     maximumFractionDigits: 0,
   }).format(n)
 
+const clienteVacio: ClienteData = {
+  nit: '',
+  nombre: '',
+  telefono: '',
+  email: '',
+  persona_tipo: 'NATURAL',
+  tipo_documento: 'CC',
+}
+
 export default function POSCaja({
   caja,
   productos,
@@ -42,8 +53,8 @@ export default function POSCaja({
   const [busqueda, setBusqueda] = useState('')
   const [categoriaActiva, setCategoriaActiva] = useState<string | null>(null)
   const [carrito, setCarrito] = useState<ItemCarrito[]>([])
-  const [cliente, setCliente] = useState<any>(null)
-  const [docCliente, setDocCliente] = useState('')
+  const [cliente, setCliente] = useState<ClienteData>(clienteVacio)
+  const [clienteEncontrado, setClienteEncontrado] = useState(false)
   const [esDomicilio, setEsDomicilio] = useState(false)
   const [direccion, setDireccion] = useState('')
   const [valorDomicilio, setValorDomicilio] = useState<string>('5000')
@@ -52,6 +63,8 @@ export default function POSCaja({
   const [tipoFactura, setTipoFactura] = useState<'POS' | 'ELECTRONICA'>('POS')
   const [procesando, setProcesando] = useState(false)
   const [showCobro, setShowCobro] = useState(false)
+
+  const cajaCerrada = !!caja.cerrada_en
 
   const productosFiltrados = useMemo(() => {
     let list = productos
@@ -103,11 +116,19 @@ export default function POSCaja({
     setCarrito((prev) => prev.filter((i) => i.producto.id !== id))
 
   const buscarCliente = async () => {
-    if (!docCliente.trim()) return
-    const r = await fetch(`/api/nit/${encodeURIComponent(docCliente.trim())}`)
-    const j = await r.json()
-    if (j.cliente) setCliente(j.cliente)
-    else alert('Cliente no encontrado. Llena los datos manualmente.')
+    if (!cliente.nit?.trim()) return
+    const { data } = await supabase
+      .from('clientes')
+      .select('*')
+      .eq('nit', cliente.nit.trim())
+      .maybeSingle()
+    if (data) {
+      setCliente(data as any)
+      setClienteEncontrado(true)
+    } else {
+      alert('No encontrado. Llena los datos manualmente.')
+      setClienteEncontrado(false)
+    }
   }
 
   const cobrar = async () => {
@@ -115,17 +136,43 @@ export default function POSCaja({
     if (esDomicilio && !direccion.trim())
       return alert('Falta dirección de entrega')
 
+    // Validaciones específicas para electrónica
+    if (tipoFactura === 'ELECTRONICA') {
+      if (!cliente.nit?.trim() || !cliente.nombre?.trim() || !cliente.email?.trim()) {
+        return alert('Factura electrónica requiere documento, nombre y email')
+      }
+    }
+
     setProcesando(true)
     try {
-      let clienteId = cliente?.id ?? null
-      if (cliente && !cliente.id && cliente.nit) {
-        const { data: nuevoCli, error } = await supabase
+      let clienteId: string | null = cliente.id ?? null
+
+      // Crear/actualizar cliente si tiene datos
+      if (cliente.nit?.trim() && cliente.nombre?.trim()) {
+        const payload: any = {
+          nit: cliente.nit.trim(),
+          nombre: cliente.nombre.trim(),
+          telefono: cliente.telefono || null,
+          email: cliente.email || null,
+          persona_tipo: cliente.persona_tipo || 'NATURAL',
+          tipo_documento: cliente.tipo_documento || 'CC',
+        }
+        if (tipoFactura === 'ELECTRONICA') {
+          payload.razon_social = cliente.razon_social || cliente.nombre
+          payload.digito_verificacion = cliente.digito_verificacion || null
+          payload.direccion = cliente.direccion || null
+          payload.departamento = cliente.departamento || null
+          payload.municipio = cliente.municipio || null
+          payload.regimen_iva = cliente.regimen_iva || 'NO_RESPONSABLE'
+          payload.actividad_ciiu = cliente.actividad_ciiu || null
+        }
+        const { data: upserted, error } = await supabase
           .from('clientes')
-          .upsert(cliente, { onConflict: 'nit' })
+          .upsert(payload, { onConflict: 'nit' })
           .select('id')
           .single()
         if (error) throw error
-        clienteId = nuevoCli.id
+        clienteId = upserted.id
       }
 
       const items = carrito.map((it) => ({
@@ -149,12 +196,10 @@ export default function POSCaja({
 
       if (error) throw error
 
-      // Abrir recibo en nueva pestaña
       window.open(`/recibo/${ventaId}`, '_blank', 'width=420,height=720')
 
-      // WhatsApp opcional
-      if (cliente?.telefono) {
-        if (confirm(`Venta #${ventaId} creada. ¿Enviar factura por WhatsApp?`)) {
+      if (cliente.telefono) {
+        if (confirm(`Venta creada. ¿Enviar factura por WhatsApp?`)) {
           await fetch('/api/facturacion/whatsapp', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -165,8 +210,8 @@ export default function POSCaja({
 
       // Reset
       setCarrito([])
-      setCliente(null)
-      setDocCliente('')
+      setCliente(clienteVacio)
+      setClienteEncontrado(false)
       setEsDomicilio(false)
       setDireccion('')
       setValorDomicilio('5000')
@@ -181,8 +226,7 @@ export default function POSCaja({
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
-      {/* Header */}
-      <header className="bg-emerald-600 text-white px-4 py-3 flex items-center justify-between">
+      <header className="bg-emerald-600 text-white px-4 py-3 flex items-center justify-between sticky top-0 z-20">
         <div>
           <h1 className="text-lg font-bold">{caja.nombre}</h1>
           <p className="text-xs opacity-80">
@@ -194,22 +238,33 @@ export default function POSCaja({
             href={`/caja/${caja.id}/historial`}
             className="bg-emerald-700 hover:bg-emerald-800 text-white text-xs px-3 py-1.5 rounded-lg"
           >
-            📜 Historial de hoy
+            📜 Historial
           </Link>
           <LogoutButton className="bg-emerald-700 hover:bg-emerald-800 text-white text-xs px-3 py-1.5" />
         </div>
       </header>
 
+      {/* Banner caja cerrada */}
+      {cajaCerrada && (
+        <div className="bg-red-600 text-white px-4 py-3 text-center font-bold sticky top-[56px] z-20">
+          🔒 ESTA CAJA ESTÁ CERRADA — Contacta al administrador para reabrirla
+        </div>
+      )}
+
+      {/* Banner pedidos listos */}
+      {!cajaCerrada && <BannerListos cajaId={caja.id} />}
+
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-[1fr_360px]">
         {/* Productos */}
         <main className="p-4 overflow-y-auto">
-          <div className="mb-3 flex flex-col md:flex-row gap-2">
+          <div className="mb-3">
             <input
               type="text"
               placeholder="Buscar producto…"
               value={busqueda}
               onChange={(e) => setBusqueda(e.target.value)}
-              className="flex-1 border border-gray-300 rounded-lg px-3 py-2"
+              className="w-full border border-gray-300 rounded-lg px-3 py-2"
+              disabled={cajaCerrada}
             />
           </div>
 
@@ -243,8 +298,9 @@ export default function POSCaja({
             {productosFiltrados.map((p) => (
               <button
                 key={p.id}
-                onClick={() => agregar(p)}
-                className="bg-white border border-gray-200 rounded-lg p-3 text-left hover:border-emerald-500 hover:shadow-md transition"
+                onClick={() => !cajaCerrada && agregar(p)}
+                disabled={cajaCerrada}
+                className="bg-white border border-gray-200 rounded-lg p-3 text-left hover:border-emerald-500 hover:shadow-md transition disabled:opacity-50"
               >
                 <p className="text-xs text-gray-500 font-mono">{p.codigo}</p>
                 <p className="font-medium text-gray-800 line-clamp-2">{p.nombre}</p>
@@ -320,7 +376,7 @@ export default function POSCaja({
             </div>
             <button
               onClick={() => setShowCobro(true)}
-              disabled={carrito.length === 0}
+              disabled={carrito.length === 0 || cajaCerrada}
               className="w-full bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-300 text-white font-bold py-3 rounded-lg mt-2"
             >
               💳 Cobrar
@@ -338,33 +394,7 @@ export default function POSCaja({
             </h3>
 
             <div className="space-y-3">
-              <div className="grid grid-cols-3 gap-2">
-                <label className="text-sm font-medium col-span-3">
-                  Cliente (NIT/CC)
-                </label>
-                <input
-                  value={docCliente}
-                  onChange={(e) => setDocCliente(e.target.value)}
-                  placeholder="Documento"
-                  className="col-span-2 border rounded-lg px-3 py-2"
-                />
-                <button
-                  onClick={buscarCliente}
-                  className="bg-blue-600 text-white rounded-lg"
-                >
-                  Buscar
-                </button>
-              </div>
-
-              {cliente && (
-                <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm">
-                  <p className="font-medium">{cliente.nombre || cliente.razon_social}</p>
-                  <p className="text-xs text-gray-600">
-                    {cliente.email} · {cliente.telefono}
-                  </p>
-                </div>
-              )}
-
+              {/* Tipo factura PRIMERO para que el form se adapte */}
               <div>
                 <label className="text-sm font-medium block mb-1">
                   Tipo de factura
@@ -393,6 +423,39 @@ export default function POSCaja({
                 </div>
               </div>
 
+              {/* Buscar cliente por NIT */}
+              <div className="grid grid-cols-3 gap-2">
+                <label className="text-sm font-medium col-span-3">
+                  Buscar cliente
+                </label>
+                <input
+                  value={cliente.nit}
+                  onChange={(e) => setCliente({ ...cliente, nit: e.target.value })}
+                  placeholder="Cédula / NIT"
+                  className="col-span-2 border rounded-lg px-3 py-2"
+                />
+                <button
+                  onClick={buscarCliente}
+                  className="bg-blue-600 text-white rounded-lg"
+                >
+                  Buscar
+                </button>
+              </div>
+
+              {clienteEncontrado && (
+                <div className="bg-green-50 border border-green-200 rounded-lg p-2 text-xs">
+                  ✓ Cliente encontrado: <strong>{cliente.nombre}</strong>
+                </div>
+              )}
+
+              {/* Form cliente según tipo factura */}
+              <ClienteFormFields
+                tipoFactura={tipoFactura}
+                cliente={cliente}
+                onChange={setCliente}
+              />
+
+              {/* Método pago */}
               <div>
                 <label className="text-sm font-medium block mb-1">
                   Método de pago
@@ -414,6 +477,7 @@ export default function POSCaja({
                 </div>
               </div>
 
+              {/* Domicilio */}
               <div>
                 <label className="flex items-center gap-2 text-sm font-medium">
                   <input
@@ -458,7 +522,7 @@ export default function POSCaja({
                         onChange={(e) => setDomiciliarioId(e.target.value)}
                         className="w-full border rounded-lg px-3 py-2 mt-1 bg-white"
                       >
-                        <option value="">— Que cualquier domi disponible lo tome —</option>
+                        <option value="">— Cualquier domi disponible —</option>
                         {domiciliarios.map((d) => (
                           <option key={d.id} value={d.id}>
                             {d.nombre}

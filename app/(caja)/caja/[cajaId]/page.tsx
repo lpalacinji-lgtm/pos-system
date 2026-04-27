@@ -24,7 +24,11 @@ export default async function CajaPage({
     { data: categorias },
     { data: domiciliarios },
   ] = await Promise.all([
-    supabase.from('cajas').select('*').eq('id', cajaId).single(),
+    supabase
+      .from('cajas')
+      .select('id, nombre, ubicacion, cerrada_en')
+      .eq('id', cajaId)
+      .single(),
     supabase
       .from('productos')
       .select('*, categoria:categorias(nombre)')
