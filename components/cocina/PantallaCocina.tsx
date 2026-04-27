@@ -237,15 +237,43 @@ export default function PantallaCocina({
                 </ul>
 
                 {pedido.estado === 'EN_COCINA' ? (
-                  <button
-                    onClick={() => marcarListo(pedido.id)}
-                    className="w-full bg-emerald-500 hover:bg-emerald-400 text-slate-900 font-bold py-3 rounded-lg text-lg"
-                  >
-                    ✓ Marcar LISTO
-                  </button>
+                  <div className="space-y-2">
+                    <button
+                      onClick={() => marcarListo(pedido.id)}
+                      className="w-full bg-emerald-500 hover:bg-emerald-400 text-slate-900 font-bold py-3 rounded-lg text-lg"
+                    >
+                      ✓ Marcar LISTO
+                    </button>
+                    <button
+                      onClick={() =>
+                        window.open(
+                          `/comanda/${pedido.id}`,
+                          '_blank',
+                          'width=420,height=720'
+                        )
+                      }
+                      className="w-full bg-slate-700 hover:bg-slate-600 text-white text-sm py-2 rounded-lg"
+                    >
+                      🖨️ Imprimir comanda
+                    </button>
+                  </div>
                 ) : (
-                  <div className="w-full bg-emerald-700/50 text-emerald-200 font-bold py-3 rounded-lg text-center">
-                    LISTO – esperando entrega
+                  <div className="space-y-2">
+                    <div className="w-full bg-emerald-700/50 text-emerald-200 font-bold py-3 rounded-lg text-center">
+                      LISTO – esperando entrega
+                    </div>
+                    <button
+                      onClick={() =>
+                        window.open(
+                          `/comanda/${pedido.id}`,
+                          '_blank',
+                          'width=420,height=720'
+                        )
+                      }
+                      className="w-full bg-slate-700 hover:bg-slate-600 text-white text-sm py-2 rounded-lg"
+                    >
+                      🖨️ Reimprimir comanda
+                    </button>
                   </div>
                 )}
               </div>
