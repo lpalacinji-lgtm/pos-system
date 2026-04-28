@@ -1,9 +1,11 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { createBrowserSupabase } from '@/lib/supabase/client'
+import { motion, AnimatePresence } from 'framer-motion'
+import { createClient } from '@/lib/supabase/client'
+import { ThemeToggle } from '@/components/ThemeProvider'
 
-type Item = {
+type ItemPedido = {
   id: string
   cantidad: number
   observacion: string | null
@@ -14,112 +16,99 @@ type Pedido = {
   id: string
   numero_consecutivo: number
   estado: 'EN_COCINA' | 'LISTO'
-  es_domicilio: boolean
-  direccion_entrega: string | null
   created_at: string
-  cocina_at: string | null
-  listo_at: string | null
   caja: { nombre: string } | null
-  cliente: { nombre: string; telefono: string | null } | null
-  items: Item[]
+  cajera: { nombre: string } | null
+  cliente: { nombre: string | null } | null
+  es_domicilio: boolean
+  observaciones: string | null
+  items: ItemPedido[]
+}
+
+function Cronometro({ desde, objetivo }: { desde: string; objetivo: number }) {
+  const [seg, setSeg] = useState(() =>
+    Math.floor((Date.now() - new Date(desde).getTime()) / 1000)
+  )
+  useEffect(() => {
+    const t = setInterval(() => {
+      setSeg(Math.floor((Date.now() - new Date(desde).getTime()) / 1000))
+    }, 1000)
+    return () => clearInterval(t)
+  }, [desde])
+  const min = Math.floor(seg / 60)
+  const ss = seg % 60
+  const pct = objetivo > 0 ? Math.min((min / objetivo) * 100, 100) : 0
+  const tono =
+    pct < 60 ? 'bg-emerald-500' : pct < 100 ? 'bg-amber-500' : 'bg-red-500'
+  const texto =
+    pct < 60 ? 'text-emerald-500' : pct < 100 ? 'text-amber-500' : 'text-red-500'
+
+  return (
+    <div className="flex items-center gap-2">
+      <div className={`text-2xl font-bold tabular-nums ${texto}`}>
+        {min}:{String(ss).padStart(2, '0')}
+      </div>
+      {objetivo > 0 && (
+        <div className="flex-1 max-w-[80px] h-1.5 bg-[var(--border)] rounded-full overflow-hidden">
+          <motion.div
+            initial={{ width: 0 }}
+            animate={{ width: `${pct}%` }}
+            className={`h-full ${tono}`}
+          />
+        </div>
+      )}
+    </div>
+  )
 }
 
 export default function PantallaCocina({
   pedidosIniciales,
+  nombre,
 }: {
   pedidosIniciales: Pedido[]
+  nombre: string
 }) {
-  const supabase = createBrowserSupabase()
+  const supabase = createClient()
   const [pedidos, setPedidos] = useState<Pedido[]>(pedidosIniciales)
-  const [audioReady, setAudioReady] = useState(false)
+  const [audioListo, setAudioListo] = useState(false)
   const audioRef = useRef<HTMLAudioElement | null>(null)
-  const newOrderIds = useRef<Set<string>>(new Set())
+  const cantidadAnterior = useRef(pedidosIniciales.length)
 
-  // Inicializa audio (requiere interacción del usuario en navegadores modernos)
   useEffect(() => {
-    audioRef.current = new Audio('/notification.mp3')
-    audioRef.current.preload = 'auto'
-  }, [])
-
-  const habilitarSonido = () => {
-    if (audioRef.current) {
-      audioRef.current
-        .play()
-        .then(() => {
-          audioRef.current!.pause()
-          audioRef.current!.currentTime = 0
-          setAudioReady(true)
-        })
-        .catch(() => setAudioReady(true))
-    } else {
-      setAudioReady(true)
-    }
-  }
-
-  const reproducirAlerta = () => {
-    if (audioRef.current && audioReady) {
-      audioRef.current.currentTime = 0
-      audioRef.current.play().catch(() => {})
-    }
-  }
-
-  // Suscripción Realtime
-  useEffect(() => {
-    const channel = supabase
-      .channel('cocina-ventas')
+    const ch = supabase
+      .channel('cocina-screen')
       .on(
         'postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'ventas' },
-        async (payload) => {
-          const nuevo = payload.new as { id: string; estado: string }
-          // Si pasó a EN_COCINA, recarga pedido completo y dispara alerta
-          if (nuevo.estado === 'EN_COCINA') {
-            const { data } = await supabase
-              .from('ventas')
-              .select(
-                `id, numero_consecutivo, estado, es_domicilio, direccion_entrega, created_at, cocina_at, listo_at,
-                 caja:cajas(nombre),
-                 cliente:clientes(nombre, telefono),
-                 items:venta_items(id, cantidad, observacion, producto:productos(nombre, tiempo_preparacion_min))`
-              )
-              .eq('id', nuevo.id)
-              .single()
-            if (data) {
-              setPedidos((prev) => {
-                if (prev.some((p) => p.id === data.id)) return prev
-                newOrderIds.current.add(data.id)
-                return [...prev, data as unknown as Pedido]
-              })
-              reproducirAlerta()
-              // Quita el pulse después de 5s
-              setTimeout(() => {
-                newOrderIds.current.delete(nuevo.id)
-                setPedidos((p) => [...p])
-              }, 5000)
-            }
-          } else if (nuevo.estado === 'LISTO') {
-            setPedidos((prev) =>
-              prev.map((p) =>
-                p.id === nuevo.id ? { ...p, estado: 'LISTO' as const } : p
-              )
+        { event: '*', schema: 'public', table: 'ventas' },
+        async () => {
+          const { data } = await supabase
+            .from('ventas')
+            .select(
+              `id, numero_consecutivo, estado, created_at, es_domicilio, observaciones,
+               caja:cajas(nombre),
+               cajera:profiles!ventas_cajera_id_fkey(nombre),
+               cliente:clientes(nombre),
+               items:venta_items(id, cantidad, observacion, producto:productos(nombre, tiempo_preparacion_min))`
             )
-          } else if (
-            nuevo.estado === 'EN_RUTA' ||
-            nuevo.estado === 'ENTREGADO' ||
-            nuevo.estado === 'CANCELADO'
-          ) {
-            // Sale de cocina
-            setPedidos((prev) => prev.filter((p) => p.id !== nuevo.id))
+            .in('estado', ['EN_COCINA', 'LISTO'])
+            .order('created_at', { ascending: true })
+          if (data) {
+            const lista = data as any[]
+            // Tocar sonido si llegó nuevo
+            if (lista.length > cantidadAnterior.current && audioListo && audioRef.current) {
+              audioRef.current.play().catch(() => {})
+            }
+            cantidadAnterior.current = lista.length
+            setPedidos(lista as Pedido[])
           }
         }
       )
       .subscribe()
-
     return () => {
-      supabase.removeChannel(channel)
+      supabase.removeChannel(ch)
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [audioReady])
+    // eslint-disable-next-line
+  }, [audioListo])
 
   const marcarListo = async (id: string) => {
     const { error } = await supabase
@@ -129,158 +118,180 @@ export default function PantallaCocina({
     if (error) alert('Error: ' + error.message)
   }
 
-  const calcularMinutos = (desde: string) => {
-    const diff = Date.now() - new Date(desde).getTime()
-    return Math.floor(diff / 60000)
+  const imprimirComanda = (id: string) =>
+    window.open(`/comanda/${id}`, '_blank', 'width=400,height=720')
+
+  const cerrarSesion = async () => {
+    await supabase.auth.signOut()
+    window.location.href = '/login'
   }
 
-  // Refresca tiempos cada 30s
-  const [, forceRender] = useState(0)
-  useEffect(() => {
-    const t = setInterval(() => forceRender((n) => n + 1), 30000)
-    return () => clearInterval(t)
-  }, [])
+  const habilitarSonido = () => {
+    if (!audioRef.current) {
+      audioRef.current = new Audio('/notification.mp3')
+    }
+    audioRef.current
+      .play()
+      .then(() => {
+        audioRef.current?.pause()
+        if (audioRef.current) audioRef.current.currentTime = 0
+        setAudioListo(true)
+      })
+      .catch(() => alert('No se pudo activar el sonido. Revisa permisos.'))
+  }
 
   return (
-    <div className="p-6">
-      {!audioReady && (
-        <div className="mb-6 bg-amber-500/20 border border-amber-500 rounded-lg p-4 flex items-center justify-between">
-          <div>
-            <p className="font-semibold text-amber-200">🔔 Habilita las alertas sonoras</p>
-            <p className="text-sm text-amber-300/80">El navegador requiere un click para reproducir audio.</p>
+    <div className="min-h-screen bg-[var(--bg)]">
+      <header className="bg-[var(--bg-elevated)] border-b border-[var(--border)] px-5 py-4 sticky top-0 z-20 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center text-white text-xl">
+            🍳
           </div>
+          <div>
+            <h1 className="font-display text-2xl leading-none">Cocina</h1>
+            <p className="text-xs text-[var(--text-muted)] mt-1">{nombre}</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <ThemeToggle />
           <button
-            onClick={habilitarSonido}
-            className="bg-amber-500 hover:bg-amber-400 text-slate-900 font-bold px-5 py-2 rounded-lg"
+            onClick={cerrarSesion}
+            className="btn btn-ghost text-sm !py-2"
           >
-            Habilitar sonido
+            Salir
           </button>
         </div>
+      </header>
+
+      {!audioListo && (
+        <motion.div
+          initial={{ y: -20, opacity: 0 }}
+          animate={{ y: 0, opacity: 1 }}
+          className="bg-amber-100 dark:bg-amber-950/30 text-amber-900 dark:text-amber-300 mx-4 mt-4 p-3 rounded-xl flex items-center justify-between gap-3"
+        >
+          <div>
+            <p className="font-semibold text-sm">🔔 Habilita las alertas sonoras</p>
+            <p className="text-xs opacity-80">El navegador requiere un click para reproducir audio</p>
+          </div>
+          <button onClick={habilitarSonido} className="btn btn-primary text-sm !py-2">
+            Habilitar
+          </button>
+        </motion.div>
       )}
 
-      {pedidos.length === 0 ? (
-        <div className="text-center py-20 text-slate-400">
-          <p className="text-6xl mb-4">🍽️</p>
-          <p className="text-xl">No hay pedidos pendientes</p>
-          <p className="text-sm">Los nuevos pedidos aparecerán aquí automáticamente.</p>
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4">
-          {pedidos.map((pedido) => {
-            const minutos = pedido.cocina_at
-              ? calcularMinutos(pedido.cocina_at)
-              : calcularMinutos(pedido.created_at)
-            const tiempoMax = Math.max(
-              ...pedido.items.map((i) => i.producto.tiempo_preparacion_min ?? 10)
-            )
-            const atrasado = minutos > tiempoMax
-            const esNuevo = newOrderIds.current.has(pedido.id)
-
-            return (
-              <div
-                key={pedido.id}
-                className={`rounded-xl border-2 p-4 transition ${
-                  pedido.estado === 'LISTO'
-                    ? 'bg-emerald-900/40 border-emerald-500'
-                    : atrasado
-                    ? 'bg-red-900/40 border-red-500'
-                    : 'bg-slate-800 border-slate-700'
-                } ${esNuevo ? 'animate-pulse-ring' : ''}`}
-              >
-                <div className="flex items-start justify-between mb-3">
-                  <div>
-                    <p className="text-xs text-slate-400">{pedido.caja?.nombre}</p>
-                    <h3 className="text-2xl font-bold">#{pedido.numero_consecutivo}</h3>
-                  </div>
-                  <div
-                    className={`text-right ${
-                      atrasado ? 'text-red-400' : 'text-slate-300'
+      <main className="p-4">
+        {pedidos.length === 0 ? (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="text-center py-24"
+          >
+            <motion.div
+              animate={{ rotate: [0, 10, -10, 0] }}
+              transition={{ duration: 4, repeat: Infinity }}
+              className="text-7xl mb-4"
+            >
+              🍽️
+            </motion.div>
+            <p className="text-xl font-semibold mb-1">No hay pedidos pendientes</p>
+            <p className="text-sm text-[var(--text-muted)]">
+              Los nuevos pedidos aparecerán aquí automáticamente
+            </p>
+          </motion.div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <AnimatePresence mode="popLayout">
+              {pedidos.map((p) => {
+                const tiempoMax = Math.max(0, ...p.items.map((it) => it.producto.tiempo_preparacion_min ?? 0))
+                const esListo = p.estado === 'LISTO'
+                return (
+                  <motion.div
+                    key={p.id}
+                    layout
+                    initial={{ opacity: 0, y: 30, scale: 0.95 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.9 }}
+                    transition={{ type: 'spring', stiffness: 350, damping: 30 }}
+                    className={`card overflow-hidden border-2 ${
+                      esListo
+                        ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/20'
+                        : 'border-[var(--brand)]'
                     }`}
                   >
-                    <p className="text-3xl font-bold tabular-nums">{minutos}'</p>
-                    <p className="text-xs">objetivo {tiempoMax}'</p>
-                  </div>
-                </div>
-
-                {pedido.es_domicilio && (
-                  <div className="bg-orange-500/20 text-orange-200 text-xs font-semibold px-2 py-1 rounded mb-2 inline-block">
-                    🛵 DOMICILIO
-                  </div>
-                )}
-                {pedido.cliente?.nombre && (
-                  <p className="text-sm text-slate-300 mb-2">
-                    👤 {pedido.cliente.nombre}
-                  </p>
-                )}
-
-                <ul className="space-y-2 mb-4">
-                  {pedido.items.map((item) => (
-                    <li
-                      key={item.id}
-                      className="bg-slate-900/50 rounded-lg p-2 border border-slate-700"
-                    >
-                      <div className="flex items-baseline gap-2">
-                        <span className="text-2xl font-bold text-emerald-400">
-                          {item.cantidad}×
-                        </span>
-                        <span className="text-lg font-medium">
-                          {item.producto.nombre}
-                        </span>
+                    <div className={`px-4 py-3 ${
+                      esListo ? 'bg-emerald-100 dark:bg-emerald-950/40' : 'bg-[var(--brand-soft)]'
+                    } flex items-center justify-between`}>
+                      <div>
+                        <p className="text-xs text-[var(--text-muted)]">{p.caja?.nombre ?? '—'}</p>
+                        <p className="font-display text-3xl leading-none">#{p.numero_consecutivo}</p>
                       </div>
-                      {item.observacion && (
-                        <p className="text-sm text-amber-300 mt-1 pl-1">
-                          ⚠️ {item.observacion}
-                        </p>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-
-                {pedido.estado === 'EN_COCINA' ? (
-                  <div className="space-y-2">
-                    <button
-                      onClick={() => marcarListo(pedido.id)}
-                      className="w-full bg-emerald-500 hover:bg-emerald-400 text-slate-900 font-bold py-3 rounded-lg text-lg"
-                    >
-                      ✓ Marcar LISTO
-                    </button>
-                    <button
-                      onClick={() =>
-                        window.open(
-                          `/comanda/${pedido.id}`,
-                          '_blank',
-                          'width=420,height=720'
-                        )
-                      }
-                      className="w-full bg-slate-700 hover:bg-slate-600 text-white text-sm py-2 rounded-lg"
-                    >
-                      🖨️ Imprimir comanda
-                    </button>
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    <div className="w-full bg-emerald-700/50 text-emerald-200 font-bold py-3 rounded-lg text-center">
-                      LISTO – esperando entrega
+                      <Cronometro desde={p.created_at} objetivo={tiempoMax} />
                     </div>
-                    <button
-                      onClick={() =>
-                        window.open(
-                          `/comanda/${pedido.id}`,
-                          '_blank',
-                          'width=420,height=720'
-                        )
-                      }
-                      className="w-full bg-slate-700 hover:bg-slate-600 text-white text-sm py-2 rounded-lg"
-                    >
-                      🖨️ Reimprimir comanda
-                    </button>
-                  </div>
-                )}
-              </div>
-            )
-          })}
-        </div>
-      )}
+
+                    <div className="p-4 space-y-3">
+                      {p.es_domicilio && (
+                        <span className="inline-flex items-center gap-1 badge bg-orange-100 text-orange-700 dark:bg-orange-950/40 dark:text-orange-300">
+                          🛵 DOMICILIO
+                        </span>
+                      )}
+                      {p.cliente?.nombre && (
+                        <p className="text-sm">👤 {p.cliente.nombre}</p>
+                      )}
+
+                      <div className="space-y-2">
+                        {p.items.map((it) => (
+                          <div key={it.id} className="bg-[var(--bg-subtle)] rounded-xl p-3">
+                            <div className="flex items-baseline gap-2">
+                              <span className="text-2xl font-bold text-[var(--brand)]">
+                                {it.cantidad}×
+                              </span>
+                              <span className="font-semibold flex-1">{it.producto.nombre}</span>
+                            </div>
+                            {it.observacion && (
+                              <div className="mt-2 bg-amber-100 dark:bg-amber-950/30 border border-amber-300 dark:border-amber-700 text-amber-900 dark:text-amber-300 rounded-lg px-2 py-1 text-xs font-medium">
+                                ⚠️ {it.observacion}
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+
+                      {p.observaciones && (
+                        <div className="bg-amber-100 dark:bg-amber-950/30 border border-amber-300 dark:border-amber-700 text-amber-900 dark:text-amber-300 rounded-lg p-2 text-xs">
+                          📝 {p.observaciones}
+                        </div>
+                      )}
+
+                      <div className="space-y-2 pt-2">
+                        {!esListo && (
+                          <motion.button
+                            whileTap={{ scale: 0.97 }}
+                            onClick={() => marcarListo(p.id)}
+                            className="btn w-full !py-3 bg-emerald-500 text-white text-base"
+                          >
+                            ✓ Marcar LISTO
+                          </motion.button>
+                        )}
+                        {esListo && (
+                          <div className="text-center bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 py-3 rounded-xl font-bold">
+                            ⏳ LISTO – esperando entrega
+                          </div>
+                        )}
+                        <button
+                          onClick={() => imprimirComanda(p.id)}
+                          className="btn btn-ghost w-full text-sm !py-2"
+                        >
+                          🖨️ Imprimir comanda
+                        </button>
+                      </div>
+                    </div>
+                  </motion.div>
+                )
+              })}
+            </AnimatePresence>
+          </div>
+        )}
+      </main>
     </div>
   )
 }
