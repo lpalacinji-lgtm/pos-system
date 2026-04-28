@@ -70,9 +70,38 @@ export default function PantallaCocina({
 }) {
   const supabase = createClient()
   const [pedidos, setPedidos] = useState<Pedido[]>(pedidosIniciales)
-  const [audioListo, setAudioListo] = useState(false)
-  const audioRef = useRef<HTMLAudioElement | null>(null)
   const cantidadAnterior = useRef(pedidosIniciales.length)
+
+  // Beep automático con AudioContext - igual que el del banner cajera
+  const beep = () => {
+    try {
+      const ctx = new (window.AudioContext || (window as any).webkitAudioContext)()
+      const osc = ctx.createOscillator()
+      const gain = ctx.createGain()
+      osc.connect(gain)
+      gain.connect(ctx.destination)
+      osc.frequency.value = 880
+      gain.gain.setValueAtTime(0.2, ctx.currentTime)
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4)
+      osc.start()
+      osc.stop(ctx.currentTime + 0.4)
+      // Segundo beep
+      setTimeout(() => {
+        try {
+          const ctx2 = new (window.AudioContext || (window as any).webkitAudioContext)()
+          const osc2 = ctx2.createOscillator()
+          const gain2 = ctx2.createGain()
+          osc2.connect(gain2)
+          gain2.connect(ctx2.destination)
+          osc2.frequency.value = 1100
+          gain2.gain.setValueAtTime(0.2, ctx2.currentTime)
+          gain2.gain.exponentialRampToValueAtTime(0.001, ctx2.currentTime + 0.4)
+          osc2.start()
+          osc2.stop(ctx2.currentTime + 0.4)
+        } catch {}
+      }, 200)
+    } catch {}
+  }
 
   useEffect(() => {
     const ch = supabase
@@ -102,8 +131,8 @@ export default function PantallaCocina({
           if (data) {
             const lista = data as any[]
             // Tocar sonido si llegó nuevo
-            if (lista.length > cantidadAnterior.current && audioListo && audioRef.current) {
-              audioRef.current.play().catch(() => {})
+            if (lista.length > cantidadAnterior.current) {
+              beep()
             }
             cantidadAnterior.current = lista.length
             setPedidos(lista as Pedido[])
@@ -115,7 +144,7 @@ export default function PantallaCocina({
       supabase.removeChannel(ch)
     }
     // eslint-disable-next-line
-  }, [audioListo])
+  }, [])
 
   const marcarListo = async (id: string) => {
     const { error } = await supabase
@@ -131,20 +160,6 @@ export default function PantallaCocina({
   const cerrarSesion = async () => {
     await supabase.auth.signOut()
     window.location.href = '/login'
-  }
-
-  const habilitarSonido = () => {
-    if (!audioRef.current) {
-      audioRef.current = new Audio('/notification.mp3')
-    }
-    audioRef.current
-      .play()
-      .then(() => {
-        audioRef.current?.pause()
-        if (audioRef.current) audioRef.current.currentTime = 0
-        setAudioListo(true)
-      })
-      .catch(() => alert('No se pudo activar el sonido. Revisa permisos.'))
   }
 
   return (
@@ -169,22 +184,6 @@ export default function PantallaCocina({
           </button>
         </div>
       </header>
-
-      {!audioListo && (
-        <motion.div
-          initial={{ y: -20, opacity: 0 }}
-          animate={{ y: 0, opacity: 1 }}
-          className="bg-amber-100 dark:bg-amber-950/30 text-amber-900 dark:text-amber-300 mx-4 mt-4 p-3 rounded-xl flex items-center justify-between gap-3"
-        >
-          <div>
-            <p className="font-semibold text-sm">🔔 Habilita las alertas sonoras</p>
-            <p className="text-xs opacity-80">El navegador requiere un click para reproducir audio</p>
-          </div>
-          <button onClick={habilitarSonido} className="btn btn-primary text-sm !py-2">
-            Habilitar
-          </button>
-        </motion.div>
-      )}
 
       <main className="p-4">
         {pedidos.length === 0 ? (
