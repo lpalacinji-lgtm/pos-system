@@ -13,6 +13,7 @@ export default async function CocinaPage() {
     .from('profiles').select('rol, nombre').eq('id', user.id).single()
   if (!profile || !['COCINA', 'ADMIN'].includes(profile.rol)) redirect('/')
 
+  // Solo EN_COCINA - cuando se marcan LISTO desaparecen de cocina
   const { data: pedidos } = await supabase
     .from('ventas')
     .select(
@@ -22,7 +23,7 @@ export default async function CocinaPage() {
        cliente:clientes(nombre),
        items:venta_items(id, cantidad, observacion, producto:productos(nombre, tiempo_preparacion_min))`
     )
-    .in('estado', ['EN_COCINA', 'LISTO'])
+    .eq('estado', 'EN_COCINA')
     .order('created_at', { ascending: true })
 
   return (

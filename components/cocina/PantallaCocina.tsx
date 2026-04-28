@@ -15,7 +15,7 @@ type ItemPedido = {
 type Pedido = {
   id: string
   numero_consecutivo: number
-  estado: 'EN_COCINA' | 'LISTO'
+  estado: 'EN_COCINA'
   created_at: string
   caja: { nombre: string } | null
   cajera: { nombre: string } | null
@@ -80,7 +80,14 @@ export default function PantallaCocina({
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'ventas' },
-        async () => {
+        async (payload) => {
+          // Si el pedido ya no está EN_COCINA, sacarlo inmediato
+          const nuevo = payload.new as any
+          if (nuevo && nuevo.estado !== 'EN_COCINA') {
+            setPedidos((p) => p.filter((x) => x.id !== nuevo.id))
+            return
+          }
+
           const { data } = await supabase
             .from('ventas')
             .select(
@@ -90,7 +97,7 @@ export default function PantallaCocina({
                cliente:clientes(nombre),
                items:venta_items(id, cantidad, observacion, producto:productos(nombre, tiempo_preparacion_min))`
             )
-            .in('estado', ['EN_COCINA', 'LISTO'])
+            .eq('estado', 'EN_COCINA')
             .order('created_at', { ascending: true })
           if (data) {
             const lista = data as any[]
@@ -203,7 +210,6 @@ export default function PantallaCocina({
             <AnimatePresence mode="popLayout">
               {pedidos.map((p) => {
                 const tiempoMax = Math.max(0, ...p.items.map((it) => it.producto.tiempo_preparacion_min ?? 0))
-                const esListo = p.estado === 'LISTO'
                 return (
                   <motion.div
                     key={p.id}
@@ -212,15 +218,9 @@ export default function PantallaCocina({
                     animate={{ opacity: 1, y: 0, scale: 1 }}
                     exit={{ opacity: 0, scale: 0.9 }}
                     transition={{ type: 'spring', stiffness: 350, damping: 30 }}
-                    className={`card overflow-hidden border-2 ${
-                      esListo
-                        ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/20'
-                        : 'border-[var(--brand)]'
-                    }`}
+                    className="card overflow-hidden border-2 border-[var(--brand)]"
                   >
-                    <div className={`px-4 py-3 ${
-                      esListo ? 'bg-emerald-100 dark:bg-emerald-950/40' : 'bg-[var(--brand-soft)]'
-                    } flex items-center justify-between`}>
+                    <div className="px-4 py-3 bg-[var(--brand-soft)] flex items-center justify-between">
                       <div>
                         <p className="text-xs text-[var(--text-muted)]">{p.caja?.nombre ?? '—'}</p>
                         <p className="font-display text-3xl leading-none">#{p.numero_consecutivo}</p>
@@ -263,20 +263,13 @@ export default function PantallaCocina({
                       )}
 
                       <div className="space-y-2 pt-2">
-                        {!esListo && (
-                          <motion.button
-                            whileTap={{ scale: 0.97 }}
-                            onClick={() => marcarListo(p.id)}
-                            className="btn w-full !py-3 bg-emerald-500 text-white text-base"
-                          >
-                            ✓ Marcar LISTO
-                          </motion.button>
-                        )}
-                        {esListo && (
-                          <div className="text-center bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 py-3 rounded-xl font-bold">
-                            ⏳ LISTO – esperando entrega
-                          </div>
-                        )}
+                        <motion.button
+                          whileTap={{ scale: 0.97 }}
+                          onClick={() => marcarListo(p.id)}
+                          className="btn w-full !py-3 bg-emerald-500 text-white text-base"
+                        >
+                          ✓ Marcar LISTO
+                        </motion.button>
                         <button
                           onClick={() => imprimirComanda(p.id)}
                           className="btn btn-ghost w-full text-sm !py-2"
