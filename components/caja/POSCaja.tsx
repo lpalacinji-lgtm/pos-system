@@ -2,10 +2,11 @@
 
 import { useState, useMemo } from 'react'
 import Link from 'next/link'
+import { motion, AnimatePresence } from 'framer-motion'
 import { createClient } from '@/lib/supabase/client'
-import LogoutButton from '@/components/LogoutButton'
 import BannerListos from '@/components/caja/BannerListos'
 import ClienteFormFields, { ClienteData } from '@/components/caja/ClienteFormFields'
+import { ThemeToggle } from '@/components/ThemeProvider'
 
 type Producto = {
   id: string
@@ -124,17 +125,13 @@ export default function POSCaja({
       setCliente(data as any)
       setClienteEncontrado(true)
     } else {
-      alert('No encontrado. Llena los datos manualmente.')
       setClienteEncontrado(false)
     }
   }
 
   const cobrar = async () => {
     if (carrito.length === 0) return alert('Carrito vacío')
-    if (esDomicilio && !direccion.trim())
-      return alert('Falta dirección de entrega')
-
-    // Validaciones específicas para electrónica
+    if (esDomicilio && !direccion.trim()) return alert('Falta dirección de entrega')
     if (tipoFactura === 'ELECTRONICA') {
       if (!cliente.nit?.trim() || !cliente.nombre?.trim() || !cliente.email?.trim()) {
         return alert('Factura electrónica requiere documento, nombre y email')
@@ -145,7 +142,6 @@ export default function POSCaja({
     try {
       let clienteId: string | null = cliente.id ?? null
 
-      // Crear/actualizar cliente si tiene datos
       if (cliente.nit?.trim() && cliente.nombre?.trim()) {
         const payload: any = {
           nit: cliente.nit.trim(),
@@ -196,16 +192,6 @@ export default function POSCaja({
 
       window.open(`/recibo/${ventaId}`, '_blank', 'width=420,height=720')
 
-      if (cliente.telefono) {
-        if (confirm(`Venta creada. ¿Enviar factura por WhatsApp?`)) {
-          await fetch('/api/facturacion/whatsapp', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ venta_id: ventaId, telefono: cliente.telefono }),
-          })
-        }
-      }
-
       // Reset
       setCarrito([])
       setCliente(clienteVacio)
@@ -222,67 +208,86 @@ export default function POSCaja({
     }
   }
 
+  const cerrarSesion = async () => {
+    await supabase.auth.signOut()
+    window.location.href = '/login'
+  }
+
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col">
-      <header className="bg-emerald-600 text-white px-4 py-3 flex items-center justify-between sticky top-0 z-20">
-        <div>
-          <h1 className="text-lg font-bold">{caja.nombre}</h1>
-          <p className="text-xs opacity-80">
-            {profile.nombre} · {caja.ubicacion}
-          </p>
+    <div className="min-h-screen bg-[var(--bg)] flex flex-col">
+      {/* Header */}
+      <header className="bg-[var(--bg-elevated)] border-b border-[var(--border)] px-5 py-3 sticky top-0 z-30 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-[var(--brand)] to-orange-600 flex items-center justify-center text-white text-xl">
+            🛒
+          </div>
+          <div>
+            <h1 className="font-display text-2xl leading-none">{caja.nombre}</h1>
+            <p className="text-xs text-[var(--text-muted)] mt-1">
+              {profile.nombre} · {caja.ubicacion}
+            </p>
+          </div>
         </div>
         <div className="flex items-center gap-2">
           <Link
             href={`/caja/${caja.id}/cuadre`}
-            className="bg-emerald-700 hover:bg-emerald-800 text-white text-xs px-3 py-1.5 rounded-lg"
+            className="btn btn-ghost text-sm !py-2 hidden md:inline-flex"
           >
             📊 Cuadre
           </Link>
           <Link
             href={`/caja/${caja.id}/historial`}
-            className="bg-emerald-700 hover:bg-emerald-800 text-white text-xs px-3 py-1.5 rounded-lg"
+            className="btn btn-ghost text-sm !py-2 hidden md:inline-flex"
           >
             📜 Historial
           </Link>
-          <LogoutButton className="bg-emerald-700 hover:bg-emerald-800 text-white text-xs px-3 py-1.5" />
+          <ThemeToggle />
+          <button onClick={cerrarSesion} className="btn btn-ghost text-sm !py-2">
+            Salir
+          </button>
         </div>
       </header>
 
       {/* Banner pedidos listos */}
       <BannerListos cajaId={caja.id} />
 
-      <div className="flex-1 grid grid-cols-1 lg:grid-cols-[1fr_360px]">
+      <div className="flex-1 grid grid-cols-1 lg:grid-cols-[1fr_400px] overflow-hidden">
         {/* Productos */}
         <main className="p-4 overflow-y-auto">
-          <div className="mb-3">
+          {/* Búsqueda */}
+          <div className="mb-4 relative">
             <input
               type="text"
               placeholder="Buscar producto…"
               value={busqueda}
               onChange={(e) => setBusqueda(e.target.value)}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2"
+              className="input pl-12"
             />
+            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-[var(--text-muted)]">
+              🔍
+            </span>
           </div>
 
-          <div className="flex gap-2 mb-3 overflow-x-auto pb-2">
+          {/* Categorías */}
+          <div className="flex gap-2 mb-4 overflow-x-auto pb-2 -mx-4 px-4">
             <button
               onClick={() => setCategoriaActiva(null)}
-              className={`px-3 py-1.5 rounded-lg whitespace-nowrap text-sm ${
+              className={`px-4 py-2 rounded-full whitespace-nowrap text-sm font-semibold transition ${
                 !categoriaActiva
-                  ? 'bg-emerald-600 text-white'
-                  : 'bg-white border'
+                  ? 'bg-[var(--brand)] text-white shadow-md'
+                  : 'bg-[var(--bg-elevated)] border border-[var(--border)] text-[var(--text-secondary)]'
               }`}
             >
-              Todas
+              ✨ Todas
             </button>
             {categorias.map((c) => (
               <button
                 key={c.id}
                 onClick={() => setCategoriaActiva(c.id)}
-                className={`px-3 py-1.5 rounded-lg whitespace-nowrap text-sm ${
+                className={`px-4 py-2 rounded-full whitespace-nowrap text-sm font-semibold transition ${
                   categoriaActiva === c.id
-                    ? 'bg-emerald-600 text-white'
-                    : 'bg-white border'
+                    ? 'bg-[var(--brand)] text-white shadow-md'
+                    : 'bg-[var(--bg-elevated)] border border-[var(--border)] text-[var(--text-secondary)]'
                 }`}
               >
                 {c.nombre}
@@ -290,265 +295,364 @@ export default function POSCaja({
             ))}
           </div>
 
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+          {/* Grid productos */}
+          <motion.div
+            layout
+            className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3"
+          >
             {productosFiltrados.map((p) => (
-              <button
+              <motion.button
                 key={p.id}
+                layout
+                whileHover={{ y: -4 }}
+                whileTap={{ scale: 0.97 }}
                 onClick={() => agregar(p)}
-                  className="bg-white border border-gray-200 rounded-lg p-3 text-left hover:border-emerald-500 hover:shadow-md transition disabled:opacity-50"
+                className="card text-left p-3 hover:border-[var(--brand)] hover:shadow-lg transition group"
               >
-                <p className="text-xs text-gray-500 font-mono">{p.codigo}</p>
-                <p className="font-medium text-gray-800 line-clamp-2">{p.nombre}</p>
-                <p className="text-emerald-600 font-bold mt-1">{fmt(p.precio)}</p>
+                <p className="text-[10px] text-[var(--text-muted)] font-mono uppercase tracking-wider">
+                  {p.codigo}
+                </p>
+                <p className="font-bold text-sm text-[var(--text)] line-clamp-2 mt-1 mb-2 leading-tight">
+                  {p.nombre}
+                </p>
+                <p className="font-display text-xl text-[var(--brand)]">
+                  {fmt(p.precio)}
+                </p>
                 {p.iva_porcentaje > 0 && (
-                  <p className="text-xs text-gray-400">+ IVA {p.iva_porcentaje}%</p>
+                  <p className="text-[10px] text-[var(--text-muted)] mt-0.5">
+                    + IVA {p.iva_porcentaje}%
+                  </p>
                 )}
-              </button>
+              </motion.button>
             ))}
-          </div>
+          </motion.div>
         </main>
 
         {/* Carrito */}
-        <aside className="bg-white border-l border-gray-200 flex flex-col max-h-screen">
-          <div className="p-4 border-b">
-            <h2 className="font-bold text-lg">🛒 Pedido ({carrito.length})</h2>
-          </div>
-          <div className="flex-1 overflow-y-auto p-3 space-y-2">
-            {carrito.length === 0 && (
-              <p className="text-gray-400 text-center py-8 text-sm">
-                Toca un producto para agregarlo
-              </p>
-            )}
-            {carrito.map((it) => (
-              <div
-                key={it.producto.id}
-                className="bg-gray-50 rounded-lg p-2 flex items-center gap-2"
-              >
-                <div className="flex-1 min-w-0">
-                  <p className="font-medium text-sm truncate">{it.producto.nombre}</p>
-                  <p className="text-xs text-gray-500">
-                    {fmt(it.producto.precio)} c/u
-                  </p>
-                </div>
-                <div className="flex items-center gap-1">
-                  <button
-                    onClick={() => cambiarCantidad(it.producto.id, -1)}
-                    className="w-7 h-7 bg-gray-200 hover:bg-gray-300 rounded"
-                  >
-                    −
-                  </button>
-                  <span className="w-7 text-center font-bold">{it.cantidad}</span>
-                  <button
-                    onClick={() => cambiarCantidad(it.producto.id, 1)}
-                    className="w-7 h-7 bg-emerald-500 hover:bg-emerald-600 text-white rounded"
-                  >
-                    +
-                  </button>
-                </div>
-                <button
-                  onClick={() => quitar(it.producto.id)}
-                  className="text-red-500 hover:text-red-700 text-lg"
-                  title="Quitar"
-                >
-                  ×
-                </button>
-              </div>
-            ))}
+        <aside className="bg-[var(--bg-elevated)] border-l border-[var(--border)] flex flex-col max-h-[calc(100vh-72px)]">
+          <div className="p-4 border-b border-[var(--border)]">
+            <h2 className="font-display text-2xl flex items-center gap-2">
+              🛒 <span>Pedido</span>
+              {carrito.length > 0 && (
+                <span className="ml-auto badge bg-[var(--brand)] text-white">
+                  {carrito.length}
+                </span>
+              )}
+            </h2>
           </div>
 
-          <div className="border-t p-4 space-y-2 bg-white">
+          <div className="flex-1 overflow-y-auto p-3 space-y-2">
+            {carrito.length === 0 ? (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                className="text-center py-12"
+              >
+                <motion.div
+                  animate={{ rotate: [0, -10, 10, 0] }}
+                  transition={{ duration: 3, repeat: Infinity }}
+                  className="text-5xl mb-3"
+                >
+                  🛍️
+                </motion.div>
+                <p className="text-sm text-[var(--text-muted)]">
+                  Toca un producto para agregarlo
+                </p>
+              </motion.div>
+            ) : (
+              <AnimatePresence mode="popLayout">
+                {carrito.map((it) => (
+                  <motion.div
+                    key={it.producto.id}
+                    layout
+                    initial={{ opacity: 0, x: 20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    exit={{ opacity: 0, x: -20 }}
+                    className="bg-[var(--bg-subtle)] rounded-2xl p-3 flex items-center gap-2"
+                  >
+                    <div className="flex-1 min-w-0">
+                      <p className="font-semibold text-sm truncate">
+                        {it.producto.nombre}
+                      </p>
+                      <p className="text-xs text-[var(--text-muted)]">
+                        {fmt(it.producto.precio)} c/u
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-1.5 bg-[var(--bg-elevated)] rounded-full p-0.5">
+                      <button
+                        onClick={() => cambiarCantidad(it.producto.id, -1)}
+                        className="w-7 h-7 flex items-center justify-center hover:bg-[var(--border)] rounded-full"
+                      >
+                        −
+                      </button>
+                      <span className="w-6 text-center font-bold tabular-nums text-sm">
+                        {it.cantidad}
+                      </span>
+                      <button
+                        onClick={() => cambiarCantidad(it.producto.id, 1)}
+                        className="w-7 h-7 flex items-center justify-center bg-[var(--brand)] text-white rounded-full hover:bg-[var(--brand-dark)]"
+                      >
+                        +
+                      </button>
+                    </div>
+                    <button
+                      onClick={() => quitar(it.producto.id)}
+                      className="text-red-500 hover:text-red-700 p-1"
+                      title="Quitar"
+                    >
+                      ✕
+                    </button>
+                  </motion.div>
+                ))}
+              </AnimatePresence>
+            )}
+          </div>
+
+          {/* Totales */}
+          <div className="border-t border-[var(--border)] p-4 space-y-2 bg-[var(--bg-elevated)]">
             <div className="flex justify-between text-sm">
-              <span>Subtotal:</span>
-              <span className="tabular-nums">{fmt(totales.subtotal)}</span>
+              <span className="text-[var(--text-secondary)]">Subtotal</span>
+              <span className="tabular-nums font-semibold">{fmt(totales.subtotal)}</span>
             </div>
             <div className="flex justify-between text-sm">
-              <span>IVA:</span>
-              <span className="tabular-nums">{fmt(totales.iva)}</span>
+              <span className="text-[var(--text-secondary)]">IVA</span>
+              <span className="tabular-nums font-semibold">{fmt(totales.iva)}</span>
             </div>
-            <div className="flex justify-between text-xl font-bold pt-1 border-t">
-              <span>Total:</span>
-              <span className="text-emerald-600 tabular-nums">{fmt(totales.total)}</span>
+            <div className="flex justify-between text-2xl font-bold pt-2 border-t border-[var(--border)]">
+              <span>Total</span>
+              <span className="text-[var(--brand)] tabular-nums font-display">
+                {fmt(totales.total)}
+              </span>
             </div>
-            <button
+            <motion.button
+              whileTap={{ scale: 0.98 }}
               onClick={() => setShowCobro(true)}
               disabled={carrito.length === 0}
-              className="w-full bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-300 text-white font-bold py-3 rounded-lg mt-2"
+              className="btn btn-primary w-full !py-4 text-base mt-2 disabled:!bg-[var(--border)] disabled:!shadow-none"
             >
-              💳 Cobrar
-            </button>
+              💳 Cobrar {fmt(totales.total)}
+            </motion.button>
+
+            {/* Móvil: links extra */}
+            <div className="grid grid-cols-2 gap-2 md:hidden pt-2">
+              <Link
+                href={`/caja/${caja.id}/cuadre`}
+                className="btn btn-ghost text-xs !py-2"
+              >
+                📊 Cuadre
+              </Link>
+              <Link
+                href={`/caja/${caja.id}/historial`}
+                className="btn btn-ghost text-xs !py-2"
+              >
+                📜 Historial
+              </Link>
+            </div>
           </div>
         </aside>
       </div>
 
       {/* Modal cobro */}
-      {showCobro && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg p-6 max-w-lg w-full max-h-[90vh] overflow-y-auto">
-            <h3 className="text-xl font-bold mb-4">
-              Procesar venta — {fmt(totales.total)}
-            </h3>
-
-            <div className="space-y-3">
-              {/* Tipo factura PRIMERO para que el form se adapte */}
-              <div>
-                <label className="text-sm font-medium block mb-1">
-                  Tipo de factura
-                </label>
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    onClick={() => setTipoFactura('POS')}
-                    className={`py-2 rounded-lg border ${
-                      tipoFactura === 'POS'
-                        ? 'bg-emerald-600 text-white border-emerald-600'
-                        : ''
-                    }`}
-                  >
-                    POS
-                  </button>
-                  <button
-                    onClick={() => setTipoFactura('ELECTRONICA')}
-                    className={`py-2 rounded-lg border ${
-                      tipoFactura === 'ELECTRONICA'
-                        ? 'bg-emerald-600 text-white border-emerald-600'
-                        : ''
-                    }`}
-                  >
-                    Electrónica
-                  </button>
+      <AnimatePresence>
+        {showCobro && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={(e) => e.target === e.currentTarget && setShowCobro(false)}
+            className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+              className="bg-[var(--bg-elevated)] rounded-3xl p-6 max-w-lg w-full max-h-[90vh] overflow-y-auto shadow-2xl"
+            >
+              <div className="flex items-start justify-between mb-4">
+                <div>
+                  <p className="text-sm text-[var(--text-muted)]">Total a cobrar</p>
+                  <h3 className="font-display text-4xl text-[var(--brand)]">
+                    {fmt(totales.total)}
+                  </h3>
                 </div>
-              </div>
-
-              {/* Buscar cliente por NIT */}
-              <div className="grid grid-cols-3 gap-2">
-                <label className="text-sm font-medium col-span-3">
-                  Buscar cliente
-                </label>
-                <input
-                  value={cliente.nit}
-                  onChange={(e) => setCliente({ ...cliente, nit: e.target.value })}
-                  placeholder="Cédula / NIT"
-                  className="col-span-2 border rounded-lg px-3 py-2"
-                />
                 <button
-                  onClick={buscarCliente}
-                  className="bg-blue-600 text-white rounded-lg"
+                  onClick={() => setShowCobro(false)}
+                  className="text-[var(--text-muted)] hover:text-[var(--text)] text-2xl p-1"
                 >
-                  Buscar
+                  ✕
                 </button>
               </div>
 
-              {clienteEncontrado && (
-                <div className="bg-green-50 border border-green-200 rounded-lg p-2 text-xs">
-                  ✓ Cliente encontrado: <strong>{cliente.nombre}</strong>
-                </div>
-              )}
-
-              {/* Form cliente según tipo factura */}
-              <ClienteFormFields
-                tipoFactura={tipoFactura}
-                cliente={cliente}
-                onChange={setCliente}
-              />
-
-              {/* Método pago */}
-              <div>
-                <label className="text-sm font-medium block mb-1">
-                  Método de pago
-                </label>
-                <div className="grid grid-cols-3 gap-2">
-                  {['EFECTIVO', 'TARJETA', 'NEQUI', 'DAVIPLATA', 'BANCOLOMBIA', 'TRANSFERENCIA'].map((m) => (
-                    <button
-                      key={m}
-                      onClick={() => setMetodoPago(m)}
-                      className={`py-2 px-2 rounded-lg border text-xs ${
-                        metodoPago === m
-                          ? 'bg-emerald-600 text-white border-emerald-600'
-                          : ''
-                      }`}
-                    >
-                      {m}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Domicilio */}
-              <div>
-                <label className="flex items-center gap-2 text-sm font-medium">
-                  <input
-                    type="checkbox"
-                    checked={esDomicilio}
-                    onChange={(e) => setEsDomicilio(e.target.checked)}
-                  />
-                  🛵 Pedido a domicilio
-                </label>
-
-                {esDomicilio && (
-                  <div className="space-y-2 mt-2 bg-orange-50 border border-orange-200 rounded-lg p-3">
-                    <div>
-                      <label className="text-xs text-gray-700 font-medium">
-                        Dirección de entrega *
-                      </label>
-                      <input
-                        value={direccion}
-                        onChange={(e) => setDireccion(e.target.value)}
-                        placeholder="Cra 50 #80-45 apto 302"
-                        className="w-full border rounded-lg px-3 py-2 mt-1"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-xs text-gray-700 font-medium">
-                        Valor del domicilio (COP)
-                      </label>
-                      <input
-                        type="number"
-                        min="0"
-                        value={valorDomicilio}
-                        onChange={(e) => setValorDomicilio(e.target.value)}
-                        className="w-full border rounded-lg px-3 py-2 mt-1"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-xs text-gray-700 font-medium">
-                        Asignar domiciliario (opcional)
-                      </label>
-                      <select
-                        value={domiciliarioId}
-                        onChange={(e) => setDomiciliarioId(e.target.value)}
-                        className="w-full border rounded-lg px-3 py-2 mt-1 bg-white"
+              <div className="space-y-4">
+                {/* Tipo factura */}
+                <div>
+                  <label className="text-xs font-bold text-[var(--text-secondary)] uppercase tracking-wide block mb-2">
+                    Tipo de factura
+                  </label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {(['POS', 'ELECTRONICA'] as const).map((t) => (
+                      <button
+                        key={t}
+                        onClick={() => setTipoFactura(t)}
+                        className={`py-3 rounded-xl font-semibold text-sm transition ${
+                          tipoFactura === t
+                            ? 'bg-[var(--brand)] text-white'
+                            : 'bg-[var(--bg-subtle)] text-[var(--text-secondary)]'
+                        }`}
                       >
-                        <option value="">— Cualquier domi disponible —</option>
-                        {domiciliarios.map((d) => (
-                          <option key={d.id} value={d.id}>
-                            {d.nombre}
-                            {d.telefono ? ` · ${d.telefono}` : ''}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
+                        {t === 'POS' ? '🧾 POS' : '📋 Electrónica'}
+                      </button>
+                    ))}
                   </div>
-                )}
-              </div>
-            </div>
+                </div>
 
-            <div className="flex gap-2 justify-end mt-6">
-              <button
-                onClick={() => setShowCobro(false)}
-                className="px-4 py-2 border rounded-lg"
-              >
-                Cancelar
-              </button>
-              <button
-                onClick={cobrar}
-                disabled={procesando}
-                className="bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-400 text-white px-6 py-2 rounded-lg font-medium"
-              >
-                {procesando ? 'Procesando...' : `Confirmar ${fmt(totales.total)}`}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+                {/* Buscar cliente */}
+                <div>
+                  <label className="text-xs font-bold text-[var(--text-secondary)] uppercase tracking-wide block mb-2">
+                    Cliente
+                  </label>
+                  <div className="flex gap-2">
+                    <input
+                      value={cliente.nit}
+                      onChange={(e) => setCliente({ ...cliente, nit: e.target.value })}
+                      placeholder="Cédula / NIT"
+                      className="input flex-1"
+                    />
+                    <button
+                      onClick={buscarCliente}
+                      className="btn btn-ghost px-4 !py-2 text-sm"
+                    >
+                      🔍 Buscar
+                    </button>
+                  </div>
+                </div>
+
+                {clienteEncontrado && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-300 dark:border-emerald-800 rounded-xl p-3 text-sm"
+                  >
+                    ✓ Cliente: <strong>{cliente.nombre}</strong>
+                  </motion.div>
+                )}
+
+                {/* Form cliente */}
+                <ClienteFormFields
+                  tipoFactura={tipoFactura}
+                  cliente={cliente}
+                  onChange={setCliente}
+                />
+
+                {/* Método pago */}
+                <div>
+                  <label className="text-xs font-bold text-[var(--text-secondary)] uppercase tracking-wide block mb-2">
+                    Método de pago
+                  </label>
+                  <div className="grid grid-cols-3 gap-2">
+                    {[
+                      { v: 'EFECTIVO', l: '💵 Efectivo' },
+                      { v: 'TARJETA', l: '💳 Tarjeta' },
+                      { v: 'NEQUI', l: 'Nequi' },
+                      { v: 'DAVIPLATA', l: 'Daviplata' },
+                      { v: 'BANCOLOMBIA', l: 'Bancolombia' },
+                      { v: 'TRANSFERENCIA', l: '🏦 Transf.' },
+                    ].map((m) => (
+                      <button
+                        key={m.v}
+                        onClick={() => setMetodoPago(m.v)}
+                        className={`py-2 px-2 rounded-xl text-xs font-semibold transition ${
+                          metodoPago === m.v
+                            ? 'bg-[var(--brand)] text-white'
+                            : 'bg-[var(--bg-subtle)] text-[var(--text-secondary)]'
+                        }`}
+                      >
+                        {m.l}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Domicilio */}
+                <div className="card p-3 !rounded-2xl bg-[var(--bg-subtle)] !border-[var(--border)]">
+                  <label className="flex items-center gap-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={esDomicilio}
+                      onChange={(e) => setEsDomicilio(e.target.checked)}
+                      className="w-5 h-5 accent-[var(--brand)]"
+                    />
+                    <span className="font-semibold">🛵 Pedido a domicilio</span>
+                  </label>
+
+                  <AnimatePresence>
+                    {esDomicilio && (
+                      <motion.div
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: 'auto', opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        className="space-y-2 mt-3 overflow-hidden"
+                      >
+                        <input
+                          value={direccion}
+                          onChange={(e) => setDireccion(e.target.value)}
+                          placeholder="📍 Dirección de entrega"
+                          className="input text-sm"
+                        />
+                        <input
+                          type="number"
+                          value={valorDomicilio}
+                          onChange={(e) => setValorDomicilio(e.target.value)}
+                          placeholder="💰 Valor del domicilio"
+                          className="input text-sm"
+                        />
+                        <select
+                          value={domiciliarioId}
+                          onChange={(e) => setDomiciliarioId(e.target.value)}
+                          className="input text-sm"
+                        >
+                          <option value="">— Cualquier domi disponible —</option>
+                          {domiciliarios.map((d) => (
+                            <option key={d.id} value={d.id}>
+                              🛵 {d.nombre}
+                              {d.telefono ? ` · ${d.telefono}` : ''}
+                            </option>
+                          ))}
+                        </select>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+              </div>
+
+              <div className="flex gap-2 mt-6">
+                <button
+                  onClick={() => setShowCobro(false)}
+                  className="btn btn-ghost flex-1"
+                >
+                  Cancelar
+                </button>
+                <motion.button
+                  whileTap={{ scale: 0.97 }}
+                  onClick={cobrar}
+                  disabled={procesando}
+                  className="btn btn-primary flex-1 !py-3"
+                >
+                  {procesando ? (
+                    <span className="flex items-center gap-2">
+                      <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                      Procesando…
+                    </span>
+                  ) : (
+                    `Confirmar`
+                  )}
+                </motion.button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   )
 }

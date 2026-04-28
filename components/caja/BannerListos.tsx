@@ -1,6 +1,7 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
 import { createClient } from '@/lib/supabase/client'
 
 type PedidoListo = {
@@ -23,8 +24,8 @@ export default function BannerListos({ cajaId }: { cajaId: string }) {
   const [listos, setListos] = useState<PedidoListo[]>([])
   const [expandido, setExpandido] = useState(false)
   const [entregando, setEntregando] = useState<string | null>(null)
+  const cantidadAnterior = useRef(0)
 
-  // Carga inicial
   useEffect(() => {
     cargarListos()
     // eslint-disable-next-line
@@ -35,10 +36,7 @@ export default function BannerListos({ cajaId }: { cajaId: string }) {
     hoy.setHours(0, 0, 0, 0)
     const { data } = await supabase
       .from('ventas')
-      .select(
-        `id, numero_consecutivo, es_domicilio, total,
-         cliente:clientes(nombre)`
-      )
+      .select(`id, numero_consecutivo, es_domicilio, total, cliente:clientes(nombre)`)
       .eq('caja_id', cajaId)
       .eq('estado', 'LISTO')
       .eq('es_domicilio', false)
@@ -46,63 +44,47 @@ export default function BannerListos({ cajaId }: { cajaId: string }) {
       .order('listo_at', { ascending: true })
 
     if (data) {
-      setListos(
-        data.map((v: any) => ({
-          id: v.id,
-          numero_consecutivo: v.numero_consecutivo,
-          es_domicilio: v.es_domicilio,
-          cliente_nombre: v.cliente?.nombre ?? null,
-          total: Number(v.total),
-        }))
-      )
+      const lista = data.map((v: any) => ({
+        id: v.id,
+        numero_consecutivo: v.numero_consecutivo,
+        es_domicilio: v.es_domicilio,
+        cliente_nombre: v.cliente?.nombre ?? null,
+        total: Number(v.total),
+      }))
+      // Beep si entró nuevo
+      if (lista.length > cantidadAnterior.current && cantidadAnterior.current >= 0) {
+        try {
+          const ctx = new (window.AudioContext || (window as any).webkitAudioContext)()
+          const osc = ctx.createOscillator()
+          const gain = ctx.createGain()
+          osc.connect(gain)
+          gain.connect(ctx.destination)
+          osc.frequency.value = 880
+          gain.gain.setValueAtTime(0.15, ctx.currentTime)
+          gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3)
+          osc.start()
+          osc.stop(ctx.currentTime + 0.3)
+        } catch {}
+      }
+      cantidadAnterior.current = lista.length
+      setListos(lista)
     }
   }
 
-  // Realtime: escuchar cambios de ventas en esta caja
   useEffect(() => {
-    const channel = supabase
+    const ch = supabase
       .channel('cajera-listos')
       .on(
         'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'ventas',
-          filter: `caja_id=eq.${cajaId}`,
-        },
-        () => {
-          cargarListos()
-        }
+        { event: '*', schema: 'public', table: 'ventas', filter: `caja_id=eq.${cajaId}` },
+        () => cargarListos()
       )
       .subscribe()
     return () => {
-      supabase.removeChannel(channel)
+      supabase.removeChannel(ch)
     }
     // eslint-disable-next-line
   }, [cajaId])
-
-  // Beep cuando entra un nuevo pedido (cantidad sube)
-  const cantidadPrevia = useEffectCantidad(listos.length)
-  useEffect(() => {
-    if (listos.length > cantidadPrevia && cantidadPrevia >= 0) {
-      try {
-        const ctx = new (window.AudioContext ||
-          (window as any).webkitAudioContext)()
-        const osc = ctx.createOscillator()
-        const gain = ctx.createGain()
-        osc.connect(gain)
-        gain.connect(ctx.destination)
-        osc.frequency.value = 880
-        gain.gain.setValueAtTime(0.15, ctx.currentTime)
-        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3)
-        osc.start()
-        osc.stop(ctx.currentTime + 0.3)
-      } catch {
-        // ignorar errores de audio
-      }
-    }
-    // eslint-disable-next-line
-  }, [listos.length])
 
   const entregar = async (id: string) => {
     setEntregando(id)
@@ -115,7 +97,7 @@ export default function BannerListos({ cajaId }: { cajaId: string }) {
       .eq('id', id)
     setEntregando(null)
     if (error) {
-      alert('Error al entregar: ' + error.message)
+      alert('Error: ' + error.message)
       return
     }
     setListos((prev) => prev.filter((p) => p.id !== id))
@@ -124,62 +106,77 @@ export default function BannerListos({ cajaId }: { cajaId: string }) {
   if (listos.length === 0) return null
 
   return (
-    <div className="sticky top-[56px] z-30 bg-amber-400 text-amber-950 shadow-lg">
+    <motion.div
+      initial={{ y: -20, opacity: 0 }}
+      animate={{ y: 0, opacity: 1 }}
+      className="sticky top-[64px] z-20"
+    >
       <button
         onClick={() => setExpandido(!expandido)}
-        className="w-full px-4 py-2.5 flex items-center justify-between hover:bg-amber-500 transition"
+        className="w-full px-4 py-3 bg-gradient-to-r from-amber-400 to-amber-500 text-amber-950 font-bold flex items-center justify-between hover:from-amber-500 hover:to-amber-600 transition shadow-lg"
       >
-        <span className="flex items-center gap-2 font-bold">
+        <span className="flex items-center gap-3">
           <span className="relative flex h-3 w-3">
             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-700 opacity-75" />
             <span className="relative inline-flex rounded-full h-3 w-3 bg-amber-700" />
           </span>
-          🔔 {listos.length} pedido{listos.length !== 1 ? 's' : ''} listo
-          {listos.length !== 1 ? 's' : ''} para entregar
+          <span>
+            🔔 {listos.length} pedido{listos.length !== 1 ? 's' : ''} listo
+            {listos.length !== 1 ? 's' : ''} para entregar
+          </span>
         </span>
-        <span className="text-sm">{expandido ? '▲ Ocultar' : '▼ Ver detalle'}</span>
+        <span className="text-sm">{expandido ? '▲' : '▼'}</span>
       </button>
 
-      {expandido && (
-        <div className="bg-white border-t border-amber-300 max-h-[60vh] overflow-y-auto">
-          {listos.map((p) => (
-            <div
-              key={p.id}
-              className="flex items-center justify-between gap-3 px-4 py-2.5 border-b border-gray-100"
-            >
-              <div className="flex-1 min-w-0">
-                <div className="flex items-baseline gap-2">
-                  <span className="text-2xl font-bold text-gray-800">
-                    #{p.numero_consecutivo}
-                  </span>
-                  {p.cliente_nombre && (
-                    <span className="text-sm text-gray-600 truncate">
-                      {p.cliente_nombre}
-                    </span>
-                  )}
-                </div>
-                <p className="text-xs text-gray-500">{fmt(p.total)}</p>
-              </div>
-              <button
-                onClick={() => entregar(p.id)}
-                disabled={entregando === p.id}
-                className="bg-emerald-500 hover:bg-emerald-600 disabled:bg-gray-300 text-white font-bold px-4 py-2 rounded-lg text-sm whitespace-nowrap"
-              >
-                {entregando === p.id ? '...' : '✓ Entregado'}
-              </button>
+      <AnimatePresence>
+        {expandido && (
+          <motion.div
+            initial={{ height: 0 }}
+            animate={{ height: 'auto' }}
+            exit={{ height: 0 }}
+            className="overflow-hidden bg-[var(--bg-elevated)] border-b border-[var(--border)] shadow-lg"
+          >
+            <div className="max-h-[60vh] overflow-y-auto">
+              <AnimatePresence>
+                {listos.map((p) => (
+                  <motion.div
+                    key={p.id}
+                    layout
+                    initial={{ opacity: 0, x: 20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    exit={{ opacity: 0, x: -20 }}
+                    className="flex items-center gap-3 px-4 py-3 border-b border-[var(--border)] hover:bg-[var(--bg-subtle)]"
+                  >
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-baseline gap-2">
+                        <span className="font-display text-2xl">
+                          #{p.numero_consecutivo}
+                        </span>
+                        {p.cliente_nombre && (
+                          <span className="text-sm text-[var(--text-secondary)] truncate">
+                            {p.cliente_nombre}
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs text-[var(--text-muted)] tabular-nums">
+                        {fmt(p.total)}
+                      </p>
+                    </div>
+                    <motion.button
+                      whileTap={{ scale: 0.95 }}
+                      onClick={() => entregar(p.id)}
+                      disabled={entregando === p.id}
+                      className="bg-emerald-500 hover:bg-emerald-600 disabled:bg-gray-300 text-white font-bold px-4 py-2 rounded-xl text-sm whitespace-nowrap"
+                    >
+                      {entregando === p.id ? '...' : '✓ Entregado'}
+                    </motion.button>
+                  </motion.div>
+                ))}
+              </AnimatePresence>
             </div>
-          ))}
-        </div>
-      )}
-    </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </motion.div>
   )
-}
-
-// Hook simple para tener el valor anterior
-function useEffectCantidad(cantidad: number) {
-  const [prev, setPrev] = useState(-1)
-  useEffect(() => {
-    setPrev(cantidad)
-  }, [cantidad])
-  return prev
 }
