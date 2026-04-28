@@ -101,18 +101,36 @@ export default function DomicilioModule({
       .channel('domi-ventas')
       .on(
         'postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'ventas' },
+        { event: '*', schema: 'public', table: 'ventas' },
         async (payload) => {
-          const n = payload.new as any
-          if (!n.es_domicilio) return
+          const n = (payload.new || payload.old) as any
+          if (!n) return
+
+          // Solo nos interesan los pedidos de domicilio
+          if (!n.es_domicilio) {
+            // Si dejó de ser domicilio o se borró, sacarlo
+            setPedidos((p) => p.filter((x) => x.id !== n.id))
+            return
+          }
+
+          // Si pasó a estado terminal, sacarlo
           if (n.estado === 'ENTREGADO' || n.estado === 'CANCELADO') {
             setPedidos((p) => p.filter((x) => x.id !== n.id))
             return
           }
-          const visible =
-            (n.estado === 'LISTO' && !n.domiciliario_id) || n.domiciliario_id === userId
-          if (!visible) return setPedidos((p) => p.filter((x) => x.id !== n.id))
 
+          // Determinar si debe ser visible para este usuario
+          const visible =
+            (n.estado === 'LISTO' && !n.domiciliario_id) ||
+            ((n.estado === 'LISTO' || n.estado === 'EN_RUTA') &&
+              n.domiciliario_id === userId)
+
+          if (!visible) {
+            setPedidos((p) => p.filter((x) => x.id !== n.id))
+            return
+          }
+
+          // Recargar el pedido completo con datos del cliente
           const { data } = await supabase
             .from('ventas')
             .select(
