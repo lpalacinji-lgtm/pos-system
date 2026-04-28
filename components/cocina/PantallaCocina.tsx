@@ -104,20 +104,16 @@ export default function PantallaCocina({
   }
 
   useEffect(() => {
+    console.log('[COCINA] Suscribiendo a realtime...')
     const ch = supabase
-      .channel('cocina-screen')
+      .channel('cocina-screen-v2')
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'ventas' },
         async (payload) => {
-          // Si el pedido ya no está EN_COCINA, sacarlo inmediato
-          const nuevo = payload.new as any
-          if (nuevo && nuevo.estado !== 'EN_COCINA') {
-            setPedidos((p) => p.filter((x) => x.id !== nuevo.id))
-            return
-          }
-
-          const { data } = await supabase
+          console.log('[COCINA] Evento recibido:', payload.eventType, payload.new || payload.old)
+          // Siempre refetch toda la lista - es más confiable
+          const { data, error } = await supabase
             .from('ventas')
             .select(
               `id, numero_consecutivo, estado, created_at, es_domicilio, observaciones,
@@ -128,9 +124,13 @@ export default function PantallaCocina({
             )
             .eq('estado', 'EN_COCINA')
             .order('created_at', { ascending: true })
+          if (error) {
+            console.error('[COCINA] Error refetch:', error)
+            return
+          }
           if (data) {
             const lista = data as any[]
-            // Tocar sonido si llegó nuevo
+            console.log('[COCINA] Pedidos en EN_COCINA:', lista.length)
             if (lista.length > cantidadAnterior.current) {
               beep()
             }
@@ -139,9 +139,36 @@ export default function PantallaCocina({
           }
         }
       )
-      .subscribe()
+      .subscribe((status) => {
+        console.log('[COCINA] Estado canal:', status)
+      })
+
+    // POLLING DE RESPALDO: cada 5 segundos refresca por si realtime falla
+    const polling = setInterval(async () => {
+      const { data } = await supabase
+        .from('ventas')
+        .select(
+          `id, numero_consecutivo, estado, created_at, es_domicilio, observaciones,
+           caja:cajas(nombre),
+           cajera:profiles!ventas_cajera_id_fkey(nombre),
+           cliente:clientes(nombre),
+           items:venta_items(id, cantidad, observacion, producto:productos(nombre, tiempo_preparacion_min))`
+        )
+        .eq('estado', 'EN_COCINA')
+        .order('created_at', { ascending: true })
+      if (data) {
+        const lista = data as any[]
+        if (lista.length > cantidadAnterior.current) {
+          beep()
+        }
+        cantidadAnterior.current = lista.length
+        setPedidos(lista as Pedido[])
+      }
+    }, 5000)
+
     return () => {
       supabase.removeChannel(ch)
+      clearInterval(polling)
     }
     // eslint-disable-next-line
   }, [])
